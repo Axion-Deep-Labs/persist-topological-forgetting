@@ -103,55 +103,37 @@ def compute_loss_on_grid(model, dataloader, base_params, dir1, dir2, grid_range,
     return loss_grid, alphas, betas
 
 
-def compute_persistent_homology(loss_grid):
+def compute_persistent_homology(loss_grid, maxdim=1):
     """Compute persistent homology on the loss surface using sublevel set filtration.
 
     Treats each grid point as a vertex with filtration value = loss.
-    Builds a Rips complex on the grid coordinates, filtered by loss values.
+    Uses a sparse distance matrix for memory efficiency.
     """
     import ripser
+    from scipy.sparse import lil_matrix
 
     steps = loss_grid.shape[0]
-
-    # Create point cloud: (x, y, loss) for each grid point
-    # For sublevel set filtration, we feed the loss values as distances
-    points = []
-    for i in range(steps):
-        for j in range(steps):
-            points.append([i, j])
-    points = np.array(points, dtype=np.float64)
-
-    # Use loss values as the filtration — compute lower-star filtration
-    # via distance matrix where d(i,j) = max(loss_i, loss_j) for adjacent,
-    # infinity for non-adjacent
-    n = len(points)
+    n = steps * steps
     loss_flat = loss_grid.flatten()
 
-    # Build adjacency: 4-connected grid
-    dist_matrix = np.full((n, n), np.inf)
+    # Build sparse adjacency (8-connected grid) — much more memory efficient
+    dist_matrix = lil_matrix((n, n))
+
     for idx in range(n):
         i, j = idx // steps, idx % steps
-        # 4-neighbors
-        for di, dj in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+        # 8-neighbors (4 cardinal + 4 diagonal)
+        for di, dj in [(-1, 0), (1, 0), (0, -1), (0, 1),
+                        (-1, -1), (-1, 1), (1, -1), (1, 1)]:
             ni, nj = i + di, j + dj
             if 0 <= ni < steps and 0 <= nj < steps:
                 nidx = ni * steps + nj
                 # Lower-star: edge appears at max of its two vertex filtration values
                 dist_matrix[idx, nidx] = max(loss_flat[idx], loss_flat[nidx])
 
-    # Also add diagonal neighbors for better complex
-    for idx in range(n):
-        i, j = idx // steps, idx % steps
-        for di, dj in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
-            ni, nj = i + di, j + dj
-            if 0 <= ni < steps and 0 <= nj < steps:
-                nidx = ni * steps + nj
-                dist_matrix[idx, nidx] = max(loss_flat[idx], loss_flat[nidx])
+    dist_matrix = dist_matrix.tocsr()
 
-    np.fill_diagonal(dist_matrix, 0)
-
-    print("Computing persistent homology (this may take a moment)...")
-    result = ripser.ripser(dist_matrix, maxdim=2, distance_matrix=True)
+    print(f"Computing persistent homology (H0-H{maxdim}, {n} points, sparse)...")
+    result = ripser.ripser(dist_matrix, maxdim=maxdim, distance_matrix=True)
 
     diagrams = result["dgms"]
     return diagrams
@@ -244,7 +226,7 @@ def main():
 
     # Compute persistent homology
     t0 = time.time()
-    diagrams = compute_persistent_homology(loss_grid)
+    diagrams = compute_persistent_homology(loss_grid, maxdim=topo_cfg["max_dimension"])
     topo_time = time.time() - t0
     print(f"  Persistent homology computed in {topo_time:.1f}s")
 

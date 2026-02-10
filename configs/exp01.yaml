@@ -32,15 +32,15 @@ training:
 # --- Landscape Sampling (Phase 2) ---
 landscape:
   num_directions: 2          # 2D slice through weight space
-  steps_per_direction: 51    # grid resolution (51x51 = 2601 points)
+  steps_per_direction: 25    # grid resolution (25x25 = 625 points)
   range: [-1.0, 1.0]        # perturbation range (filter-normalized)
   filter_normalize: true     # Li et al. 2018
 
 # --- Persistent Homology (Phase 2) ---
 topology:
-  max_dimension: 2           # compute H0, H1, H2
+  max_dimension: 1           # compute H0, H1 (H2 too memory-intensive at this scale)
   max_edge_length: 2.0       # truncate Rips complex
-  num_landscape_samples: 2601  # must equal steps^2
+  num_landscape_samples: 625   # must equal steps^2
 
 # --- Forgetting Measurement (Phase 3) ---
 forgetting:

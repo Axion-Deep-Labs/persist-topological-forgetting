@@ -60,13 +60,13 @@ def single_run_analysis(result_dir):
     print("=" * 60)
 
     print(f"\nTopological Features (Task A converged model):")
-    print(f"  H0 total persistence:   {topo.get('H0', 'N/A'):.4f}")
-    print(f"  H0 feature count:       {topo.get('H0_count', 'N/A')}")
-    print(f"  H1 total persistence:   {topo.get('H1', 'N/A'):.4f}")
-    print(f"  H1 feature count:       {topo.get('H1_count', 'N/A')}")
-    print(f"  H1 max lifetime:        {topo.get('H1_max_lifetime', 'N/A'):.4f}")
-    print(f"  H2 total persistence:   {topo.get('H2', 'N/A'):.4f}")
-    print(f"  H2 feature count:       {topo.get('H2_count', 'N/A')}")
+    for dim in range(3):
+        key = f"H{dim}"
+        if key in topo:
+            print(f"  {key} total persistence:   {topo[key]:.4f}")
+            print(f"  {key} feature count:       {topo.get(f'{key}_count', 0)}")
+            if f"{key}_max_lifetime" in topo:
+                print(f"  {key} max lifetime:        {topo[f'{key}_max_lifetime']:.4f}")
 
     print(f"\nForgetting Curve:")
     print(f"  Initial Task A accuracy: {forget['initial_task_a_acc']:.1%}")
