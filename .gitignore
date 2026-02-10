@@ -1,0 +1,29 @@
+# Data
+data/
+*.npz
+*.npy
+
+# Results (large files)
+results/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Weights & Biases
+wandb/
+
+# Jupyter
+.ipynb_checkpoints/
