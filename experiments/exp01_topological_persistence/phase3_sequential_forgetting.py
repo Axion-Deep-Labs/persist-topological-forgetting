@@ -19,6 +19,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR
+from clearml import Task as ClearMLTask
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
@@ -38,6 +39,15 @@ def main():
     forget_cfg = cfg["forgetting"]
     device = torch.device(cfg.get("device", "cuda") if torch.cuda.is_available() else "cpu")
     output_dir = cfg["output_dir"]
+
+    # ClearML experiment tracking
+    task = ClearMLTask.init(
+        project_name="EXP-01 Topological Persistence",
+        task_name="Phase 3 — Sequential Forgetting",
+        task_type=ClearMLTask.TaskTypes.training,
+    )
+    task.connect(cfg, name="config")
+    logger = task.get_logger()
 
     print("EXP-01 Phase 3: Sequential Forgetting Measurement")
     print(f"  Device: {device}")
@@ -130,6 +140,11 @@ def main():
                     "forgetting": forgetting,
                 })
                 print(f"{step:6d} | {task_a_acc:8.1%} | {task_b_acc:8.1%} | {forgetting:9.1%}")
+
+                # Log to ClearML
+                logger.report_scalar("accuracy", "task_a_retention", iteration=step, value=task_a_acc)
+                logger.report_scalar("accuracy", "task_b_learning", iteration=step, value=task_b_acc)
+                logger.report_scalar("forgetting", "catastrophic", iteration=step, value=forgetting)
 
                 if forget_cfg.get("save_checkpoints"):
                     save_checkpoint(

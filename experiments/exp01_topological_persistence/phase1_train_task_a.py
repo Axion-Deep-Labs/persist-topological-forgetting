@@ -17,6 +17,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
+from clearml import Task as ClearMLTask
 
 # Add project root to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
@@ -58,6 +59,15 @@ def main():
     train_cfg = cfg["training"]
     device = torch.device(cfg.get("device", "cuda") if torch.cuda.is_available() else "cpu")
     output_dir = cfg["output_dir"]
+
+    # ClearML experiment tracking
+    task = ClearMLTask.init(
+        project_name="EXP-01 Topological Persistence",
+        task_name="Phase 1 — Train Task A",
+        task_type=ClearMLTask.TaskTypes.training,
+    )
+    task.connect(cfg, name="config")
+    logger = task.get_logger()
 
     print(f"EXP-01 Phase 1: Train on Task A")
     print(f"  Device: {device}")
@@ -109,6 +119,12 @@ def main():
         lr = optimizer.param_groups[0]["lr"]
 
         print(f"{epoch:5d} | {train_loss:10.4f} | {train_acc:8.1%} | {test_acc:7.1%} | {lr:8.6f} | {elapsed:5.1f}s")
+
+        # Log to ClearML
+        logger.report_scalar("loss", "train", iteration=epoch, value=train_loss)
+        logger.report_scalar("accuracy", "train", iteration=epoch, value=train_acc)
+        logger.report_scalar("accuracy", "test", iteration=epoch, value=test_acc)
+        logger.report_scalar("lr", "learning_rate", iteration=epoch, value=lr)
 
         # Save best
         if test_acc > best_acc:

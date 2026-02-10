@@ -22,6 +22,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from tqdm import tqdm
+from clearml import Task as ClearMLTask
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
@@ -181,6 +182,15 @@ def main():
     device = torch.device(cfg.get("device", "cuda") if torch.cuda.is_available() else "cpu")
     output_dir = cfg["output_dir"]
 
+    # ClearML experiment tracking
+    task = ClearMLTask.init(
+        project_name="EXP-01 Topological Persistence",
+        task_name="Phase 2 — Landscape Topology",
+        task_type=ClearMLTask.TaskTypes.data_processing,
+    )
+    task.connect(cfg, name="config")
+    logger = task.get_logger()
+
     print(f"EXP-01 Phase 2: Loss Landscape Topology")
     print(f"  Device: {device}")
     print(f"  Grid: {landscape_cfg['steps_per_direction']}x{landscape_cfg['steps_per_direction']}")
@@ -243,6 +253,17 @@ def main():
     print(f"\n  Topological Summary:")
     for key, val in persistence_stats.items():
         print(f"    {key}: {val}")
+        logger.report_single_value(name=key, value=val)
+
+    # Log loss landscape as heatmap
+    logger.report_surface(
+        title="Loss Landscape",
+        series="2D slice",
+        matrix=loss_grid,
+        iteration=0,
+        xlabels=[f"{a:.2f}" for a in alphas[::10]],
+        ylabels=[f"{b:.2f}" for b in betas[::10]],
+    )
 
     # Save persistence diagrams
     for dim, dgm in enumerate(diagrams):
