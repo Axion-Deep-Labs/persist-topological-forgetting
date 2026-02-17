@@ -22,13 +22,12 @@ import numpy as np
 import torch
 import torch.nn as nn
 from tqdm import tqdm
-from clearml import Task as ClearMLTask
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
 from experiments.shared.datasets import SplitCIFAR100
 from experiments.shared.models import get_model
 from experiments.shared.utils import set_seed, load_config, load_checkpoint
+from experiments.shared.baseline_metrics import compute_all_baseline_metrics
 
 
 def get_random_direction(model):
@@ -164,15 +163,6 @@ def main():
     device = torch.device(cfg.get("device", "cuda") if torch.cuda.is_available() else "cpu")
     output_dir = cfg["output_dir"]
 
-    # ClearML experiment tracking
-    task = ClearMLTask.init(
-        project_name="EXP-01 Topological Persistence",
-        task_name="Phase 2 — Landscape Topology",
-        task_type=ClearMLTask.TaskTypes.data_processing,
-    )
-    task.connect(cfg, name="config")
-    logger = task.get_logger()
-
     print(f"EXP-01 Phase 2: Loss Landscape Topology")
     print(f"  Device: {device}")
     print(f"  Grid: {landscape_cfg['steps_per_direction']}x{landscape_cfg['steps_per_direction']}")
@@ -235,23 +225,20 @@ def main():
     print(f"\n  Topological Summary:")
     for key, val in persistence_stats.items():
         print(f"    {key}: {val}")
-        logger.report_single_value(name=key, value=val)
-
-    # Log loss landscape as heatmap
-    logger.report_surface(
-        title="Loss Landscape",
-        series="2D slice",
-        matrix=loss_grid,
-        iteration=0,
-        xlabels=[f"{a:.2f}" for a in alphas[::10]],
-        ylabels=[f"{b:.2f}" for b in betas[::10]],
-    )
 
     # Save persistence diagrams
     for dim, dgm in enumerate(diagrams):
         np.save(os.path.join(topo_dir, f"persistence_diagram_H{dim}.npy"), dgm)
 
-    # Save summary
+    # Restore model to original params for baseline metrics
+    for param, base in zip(model.parameters(), base_params):
+        param.data.copy_(base)
+
+    # Compute baseline geometry metrics (Hessian, Fisher, sharpness)
+    print("\n" + "=" * 50)
+    baseline_metrics = compute_all_baseline_metrics(model, test_loader, device)
+
+    # Save summary (topology + baseline metrics)
     summary = {
         "checkpoint": ckpt_path,
         "checkpoint_epoch": epoch,
@@ -265,6 +252,7 @@ def main():
         "landscape_compute_time_s": landscape_time,
         "topology_compute_time_s": topo_time,
         **persistence_stats,
+        **baseline_metrics,
     }
     with open(os.path.join(topo_dir, "topology_summary.json"), "w") as f:
         json.dump(summary, f, indent=2)

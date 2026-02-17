@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EXP-01 — Experiment Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            background: #0a0a1a;
+            color: #e0e0e0;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border-bottom: 1px solid #2a2a4a;
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 60px;
+        }
+        .header h1 { font-size: 16px; color: #a78bfa; font-weight: 600; }
+        .header .subtitle { font-size: 11px; color: #555; margin-top: 2px; }
+        .header-actions { display: flex; gap: 8px; align-items: center; }
+
+        /* Buttons */
+        .btn {
+            padding: 7px 16px; border: none; border-radius: 6px;
+            font-family: inherit; font-size: 12px; font-weight: 600;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .btn-primary { background: linear-gradient(135deg, #7c3aed, #6d28d9); color: white; }
+        .btn-primary:hover { box-shadow: 0 4px 16px rgba(124,58,237,0.3); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-danger { background: linear-gradient(135deg, #dc2626, #b91c1c); color: white; }
+        .btn-warning { background: linear-gradient(135deg, #f59e0b, #d97706); color: #000; }
+        .btn-secondary { background: #1e1e3a; color: #a78bfa; border: 1px solid #2a2a4a; }
+        .btn-secondary:hover { background: #2a2a4a; }
+        .btn-sm { padding: 3px 10px; font-size: 10px; }
+
+        /* System monitor bar */
+        .system-bar {
+            background: #141428;
+            border-top: 1px solid #2a2a4a;
+            border-bottom: 1px solid #2a2a4a;
+            padding: 10px 24px;
+            display: flex;
+            gap: 24px;
+            align-items: center;
+            height: 52px;
+        }
+
+        /* Main 2-column layout */
+        .main {
+            display: grid;
+            grid-template-columns: 1fr 360px;
+            height: calc(100vh - 112px);
+        }
+        .sys-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .sys-label {
+            font-size: 10px;
+            color: #555;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            min-width: 30px;
+        }
+        .sys-bar-container {
+            width: 120px;
+            height: 8px;
+            background: #1a1a2e;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .sys-bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.5s ease, background 0.5s ease;
+        }
+        .sys-bar-fill.cpu { background: #3b82f6; }
+        .sys-bar-fill.ram { background: #8b5cf6; }
+        .sys-bar-fill.gpu { background: #22c55e; }
+        .sys-bar-fill.vram { background: #f59e0b; }
+        .sys-bar-fill.hot { background: #ef4444 !important; }
+        .sys-value {
+            font-size: 11px;
+            color: #888;
+            min-width: 45px;
+            text-align: right;
+        }
+        .sys-value.hot { color: #ef4444; }
+        .gpu-temp {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            background: #1a1a2e;
+        }
+        .gpu-temp.cool { color: #22c55e; }
+        .gpu-temp.warm { color: #f59e0b; }
+        .gpu-temp.hot { color: #ef4444; }
+        .gpu-name {
+            font-size: 10px;
+            color: #444;
+        }
+        .sys-divider {
+            width: 1px;
+            height: 24px;
+            background: #1e1e3a;
+        }
+
+        /* Experiment area */
+        .experiments {
+            padding: 20px 24px;
+            overflow-y: auto;
+        }
+        .section-title {
+            font-size: 11px; color: #555; text-transform: uppercase;
+            letter-spacing: 1px; margin-bottom: 12px;
+        }
+
+        /* Experiment grid */
+        .exp-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .exp-card {
+            background: #12122a;
+            border: 1px solid #1e1e3a;
+            border-radius: 10px;
+            padding: 14px;
+            transition: border-color 0.2s;
+        }
+        .exp-card:hover { border-color: #3a3a5a; }
+        .exp-card.running { border-color: #a78bfa; box-shadow: 0 0 16px rgba(167,139,250,0.08); }
+        .exp-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 10px;
+        }
+        .exp-name { font-size: 14px; font-weight: 600; color: #fff; }
+        .exp-params {
+            font-size: 10px; color: #666; background: #1a1a2e;
+            padding: 2px 6px; border-radius: 4px;
+        }
+
+        /* Phase indicators */
+        .phases { display: flex; gap: 6px; margin-bottom: 10px; }
+        .phase {
+            flex: 1; text-align: center; padding: 5px 0; border-radius: 5px;
+            font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .phase.complete { background: rgba(34,197,94,0.12); color: #22c55e; border: 1px solid rgba(34,197,94,0.2); }
+        .phase.pending { background: rgba(100,100,100,0.08); color: #444; border: 1px solid #1e1e3a; }
+        .phase.running {
+            background: rgba(167,139,250,0.12); color: #a78bfa;
+            border: 1px solid rgba(167,139,250,0.25);
+            animation: pulse 2s ease-in-out infinite;
+        }
+        @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
+
+        /* Results mini */
+        .exp-results {
+            font-size: 10px; color: #888;
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px;
+        }
+        .exp-results .label { color: #444; }
+        .exp-results .value { color: #a78bfa; font-weight: 600; }
+        .exp-actions { margin-top: 8px; }
+
+        /* Results table */
+        .results-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        .results-table th {
+            text-align: left; padding: 6px 10px; background: #1a1a2e;
+            color: #a78bfa; font-weight: 600; border-bottom: 1px solid #2a2a4a;
+        }
+        .results-table td {
+            padding: 5px 10px; border-bottom: 1px solid #1a1a2e; color: #ccc;
+        }
+        .results-table tr:hover td { background: #12122a; }
+
+        /* Right panel: logs */
+        .right-panel {
+            background: #0d0d1a;
+            border-left: 1px solid #1e1e3a;
+            display: flex;
+            flex-direction: column;
+            max-height: 60vh;
+            min-height: 0;
+        }
+        .log-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid #1e1e3a;
+            display: flex; justify-content: space-between; align-items: center;
+            flex-shrink: 0;
+        }
+        .log-header h2 { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 1px; }
+        .log-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px 14px;
+            font-size: 10px;
+            line-height: 1.5;
+            color: #555;
+            min-height: 0;
+            scroll-behavior: smooth;
+        }
+        /* Scrollbar styling */
+        .log-content::-webkit-scrollbar { width: 6px; }
+        .log-content::-webkit-scrollbar-track { background: #0a0a1a; }
+        .log-content::-webkit-scrollbar-thumb { background: #2a2a4a; border-radius: 3px; }
+        .log-content::-webkit-scrollbar-thumb:hover { background: #3a3a5a; }
+        .log-content .line { white-space: pre-wrap; word-break: break-all; padding: 1px 0; }
+        .log-content .line.success { color: #22c55e; }
+        .log-content .line.error { color: #ef4444; }
+        .log-content .line.highlight { color: #a78bfa; }
+        .log-content .line.info { color: #666; }
+        .log-content .line.progress { color: #3b82f6; }
+        .log-scroll-anchor { height: 1px; }
+
+        /* Auto-scroll toggle */
+        .autoscroll-toggle {
+            font-size: 10px; color: #555; cursor: pointer;
+            display: flex; align-items: center; gap: 4px;
+        }
+        .autoscroll-toggle input { accent-color: #a78bfa; }
+
+        /* Status badge */
+        .status-badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            font-size: 11px; padding: 3px 10px; border-radius: 16px;
+        }
+        .status-badge.running { background: rgba(167,139,250,0.12); color: #a78bfa; }
+        .status-badge.idle { background: rgba(100,100,100,0.08); color: #444; }
+        .status-dot { width: 5px; height: 5px; border-radius: 50%; }
+        .status-dot.running { background: #a78bfa; animation: pulse 1.5s ease-in-out infinite; }
+        .status-dot.idle { background: #333; }
+
+        /* Correlation */
+        .correlation-box {
+            background: #12122a; border: 1px solid #1e1e3a;
+            border-radius: 10px; padding: 14px; margin-top: 16px;
+        }
+        .correlation-box h3 { font-size: 12px; color: #a78bfa; margin-bottom: 10px; }
+        .corr-row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 11px; }
+        .corr-row .metric { color: #888; }
+        .corr-row .rho { color: #22c55e; font-weight: 600; }
+        .corr-row .rho.weak { color: #f59e0b; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <h1>EXP-01 Topological Persistence</h1>
+            <div class="subtitle">Axion Deep Labs</div>
+        </div>
+        <div class="header-actions">
+            <span id="statusBadge" class="status-badge idle">
+                <span class="status-dot idle"></span><span>Idle</span>
+            </span>
+            <button id="btnRunAll" class="btn btn-primary" onclick="runAll()">Run All Remaining</button>
+            <button id="btnPause" class="btn btn-warning" onclick="pauseRun()" style="display:none;">Pause</button>
+            <button id="btnStop" class="btn btn-danger" onclick="stopRun()" style="display:none;">Stop</button>
+            <button class="btn btn-secondary" onclick="runCorrelation()">Run Correlation</button>
+        </div>
+    </div>
+
+    <!-- System Monitor Bar -->
+    <div class="system-bar">
+        <span class="gpu-name" id="gpuName">—</span>
+        <div class="sys-divider"></div>
+        <div class="sys-group">
+            <span class="sys-label">CPU</span>
+            <div class="sys-bar-container"><div id="cpuBar" class="sys-bar-fill cpu" style="width:0%"></div></div>
+            <span class="sys-value" id="cpuVal">0%</span>
+            <span class="sys-label">TEMP</span>
+            <span class="gpu-temp cool" id="cpuTemp">—</span>
+        </div>
+        <div class="sys-group">
+            <span class="sys-label">RAM</span>
+            <div class="sys-bar-container"><div id="ramBar" class="sys-bar-fill ram" style="width:0%"></div></div>
+            <span class="sys-value" id="ramVal">0%</span>
+        </div>
+        <div class="sys-divider"></div>
+        <div class="sys-group">
+            <span class="sys-label">GPU</span>
+            <div class="sys-bar-container"><div id="gpuBar" class="sys-bar-fill gpu" style="width:0%"></div></div>
+            <span class="sys-value" id="gpuVal">0%</span>
+            <span class="sys-label">TEMP</span>
+            <span class="gpu-temp cool" id="gpuTemp">—</span>
+        </div>
+        <div class="sys-group">
+            <span class="sys-label">VRAM</span>
+            <div class="sys-bar-container"><div id="vramBar" class="sys-bar-fill vram" style="width:0%"></div></div>
+            <span class="sys-value" id="vramVal">0/0</span>
+        </div>
+        <div class="sys-group">
+            <span class="sys-label">PWR</span>
+            <span class="sys-value" id="gpuPower">—</span>
+        </div>
+    </div>
+
+    <div class="main">
+        <!-- Left: experiments -->
+        <div class="experiments">
+            <div class="section-title">Architectures</div>
+            <div id="expGrid" class="exp-grid"></div>
+            <div class="section-title">Results Comparison</div>
+            <div id="resultsTable"></div>
+            <div id="correlationSection"></div>
+        </div>
+
+        <!-- Right: live logs -->
+        <div class="right-panel">
+            <div class="log-header">
+                <h2>Live Output</h2>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <label class="autoscroll-toggle">
+                        <input type="checkbox" id="autoScroll" checked> auto-scroll
+                    </label>
+                    <button class="btn btn-sm btn-secondary" onclick="clearLogs()">Clear</button>
+                </div>
+            </div>
+            <div id="logContent" class="log-content">
+                <div class="line info">Dashboard ready. Click "Run All Remaining" to start.</div>
+                <div class="log-scroll-anchor" id="scrollAnchor"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let logOffset = 0;
+        let autoScroll = true;
+
+        document.getElementById('autoScroll').addEventListener('change', (e) => {
+            autoScroll = e.target.checked;
+            if (autoScroll) scrollToBottom();
+        });
+
+        function scrollToBottom() {
+            const el = document.getElementById('logContent');
+            el.scrollTop = el.scrollHeight;
+        }
+
+        // Detect if user scrolled up manually
+        document.getElementById('logContent').addEventListener('scroll', (e) => {
+            const el = e.target;
+            const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+            if (!isAtBottom && autoScroll) {
+                // User scrolled up — don't force scroll
+            }
+        });
+
+        // ─── System Monitor ───
+        async function fetchSystem() {
+            try {
+                const res = await fetch('/api/system');
+                const d = await res.json();
+
+                // CPU
+                document.getElementById('cpuBar').style.width = d.cpu.percent + '%';
+                document.getElementById('cpuVal').textContent = d.cpu.percent + '%';
+                if (d.cpu.percent > 90) document.getElementById('cpuBar').classList.add('hot');
+                else document.getElementById('cpuBar').classList.remove('hot');
+
+                // CPU temp
+                const cpuTempEl = document.getElementById('cpuTemp');
+                if (d.cpu.temp_c) {
+                    cpuTempEl.textContent = d.cpu.temp_c + '\u00b0C';
+                    cpuTempEl.className = 'gpu-temp ' + (d.cpu.temp_c > 85 ? 'hot' : d.cpu.temp_c > 70 ? 'warm' : 'cool');
+                } else {
+                    cpuTempEl.textContent = '\u2014';
+                }
+
+                // RAM
+                document.getElementById('ramBar').style.width = d.ram.percent + '%';
+                document.getElementById('ramVal').textContent = d.ram.used_gb + '/' + d.ram.total_gb + 'G';
+
+                // GPU
+                if (d.gpu) {
+                    document.getElementById('gpuName').textContent = d.gpu.name;
+                    document.getElementById('gpuBar').style.width = d.gpu.util_percent + '%';
+                    document.getElementById('gpuVal').textContent = d.gpu.util_percent + '%';
+
+                    const vramPct = (d.gpu.mem_used_mb / d.gpu.mem_total_mb * 100).toFixed(0);
+                    document.getElementById('vramBar').style.width = vramPct + '%';
+                    document.getElementById('vramVal').textContent = (d.gpu.mem_used_mb/1024).toFixed(1) + '/' + (d.gpu.mem_total_mb/1024).toFixed(0) + 'G';
+
+                    const tempEl = document.getElementById('gpuTemp');
+                    tempEl.textContent = d.gpu.temp_c + '\u00b0C';
+                    tempEl.className = 'gpu-temp ' + (d.gpu.temp_c > 85 ? 'hot' : d.gpu.temp_c > 70 ? 'warm' : 'cool');
+
+                    document.getElementById('gpuPower').textContent = d.gpu.power_w.toFixed(0) + '/' + d.gpu.power_limit_w.toFixed(0) + 'W';
+                }
+            } catch (e) { /* silent */ }
+        }
+
+        // ─── API Calls ───
+        async function fetchStatus() {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+                renderExperiments(data.experiments, data.runner);
+                renderResultsTable(data.experiments);
+                updateRunnerStatus(data.runner);
+            } catch (e) { console.error(e); }
+        }
+
+        async function fetchLogs() {
+            try {
+                const res = await fetch(`/api/logs?offset=${logOffset}`);
+                const data = await res.json();
+                if (data.logs.length > 0) {
+                    appendLogs(data.logs);
+                    logOffset = data.total;
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        async function runAll() {
+            const res = await fetch('/api/run', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({mode: 'all_remaining'}),
+            });
+            logOffset = 0;
+            document.getElementById('logContent').innerHTML = '<div class="log-scroll-anchor" id="scrollAnchor"></div>';
+            fetchStatus(); fetchLogs();
+        }
+
+        async function runExperiment(expId) {
+            await fetch('/api/run', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({mode: 'experiment', experiment: expId}),
+            });
+            logOffset = 0;
+            document.getElementById('logContent').innerHTML = '<div class="log-scroll-anchor" id="scrollAnchor"></div>';
+            fetchStatus(); fetchLogs();
+        }
+
+        async function stopRun() {
+            await fetch('/api/stop', {method: 'POST'});
+            fetchStatus();
+        }
+
+        async function pauseRun() {
+            const btn = document.getElementById('btnPause');
+            if (btn.textContent === 'Pause') {
+                await fetch('/api/pause', {method: 'POST'});
+            } else {
+                await fetch('/api/resume', {method: 'POST'});
+            }
+            fetchStatus(); fetchLogs();
+        }
+
+        async function runCorrelation() {
+            const res = await fetch('/api/run_correlation', {method: 'POST'});
+            const data = await res.json();
+            if (data.output) appendLogs(data.output.split('\n').filter(l => l));
+            fetchCorrelation();
+        }
+
+        async function fetchCorrelation() {
+            try {
+                const res = await fetch('/api/correlation');
+                if (res.ok) renderCorrelation(await res.json());
+            } catch (e) {}
+        }
+
+        function clearLogs() {
+            document.getElementById('logContent').innerHTML = '<div class="log-scroll-anchor" id="scrollAnchor"></div>';
+            logOffset = 0;
+        }
+
+        // ─── Rendering ───
+        function renderExperiments(experiments, runner) {
+            const grid = document.getElementById('expGrid');
+            grid.innerHTML = experiments.map(exp => {
+                const isRunning = runner.running && runner.current_experiment === exp.name;
+                const allComplete = Object.values(exp.phases).every(v => v === 'complete');
+                const r = exp.results || {};
+
+                return `
+                    <div class="exp-card ${isRunning ? 'running' : ''}">
+                        <div class="exp-header">
+                            <span class="exp-name">${exp.name}</span>
+                            <span class="exp-params">${exp.params}</span>
+                        </div>
+                        <div class="phases">
+                            ${['phase1','phase2','phase3'].map((pid, i) => {
+                                let cls = exp.phases[pid];
+                                if (isRunning && runner.current_phase === ['Train Task A','Landscape Topology','Sequential Forgetting'][i]) cls = 'running';
+                                return `<div class="phase ${cls}">${['P1 Train','P2 Topo','P3 Forget'][i]}</div>`;
+                            }).join('')}
+                        </div>
+                        <div class="exp-results">
+                            <div><span class="label">Acc: </span><span class="value">${r.accuracy ? (r.accuracy*100).toFixed(1)+'%' : '\u2014'}</span></div>
+                            <div><span class="label">H0: </span><span class="value">${r.h0_persistence ? r.h0_persistence.toFixed(1) : '\u2014'}</span></div>
+                            <div><span class="label">Ret@100: </span><span class="value">${r.ret_100 !== undefined ? (r.ret_100*100).toFixed(1)+'%' : '\u2014'}</span></div>
+                        </div>
+                        ${!allComplete ? `<div class="exp-actions"><button class="btn btn-sm btn-secondary" onclick="runExperiment('${exp.id}')">Run Remaining</button></div>` : ''}
+                    </div>`;
+            }).join('');
+        }
+
+        function renderResultsTable(experiments) {
+            const complete = experiments.filter(e => e.phases.phase2 === 'complete' && e.phases.phase3 === 'complete');
+            if (!complete.length) {
+                document.getElementById('resultsTable').innerHTML = '<div style="color:#333;font-size:11px;">No complete experiments yet.</div>';
+                return;
+            }
+            let html = `<table class="results-table"><tr>
+                <th>Architecture</th><th>Params</th><th>Acc</th><th>H0</th>
+                <th>Hess.Tr</th><th>MaxEig</th><th>Fisher</th><th>Ret@100</th><th>Ret@10k</th></tr>`;
+            for (const exp of complete) {
+                const r = exp.results;
+                html += `<tr>
+                    <td>${exp.name}</td><td>${exp.params}</td>
+                    <td>${r.accuracy ? (r.accuracy*100).toFixed(1)+'%' : '\u2014'}</td>
+                    <td>${r.h0_persistence ? r.h0_persistence.toFixed(1) : '\u2014'}</td>
+                    <td>${r.hessian_trace ? r.hessian_trace.toFixed(1) : '\u2014'}</td>
+                    <td>${r.max_eigenvalue ? r.max_eigenvalue.toFixed(1) : '\u2014'}</td>
+                    <td>${r.fisher_trace ? r.fisher_trace.toFixed(1) : '\u2014'}</td>
+                    <td>${r.ret_100 !== undefined ? (r.ret_100*100).toFixed(1)+'%' : '\u2014'}</td>
+                    <td>${r.ret_10000 !== undefined ? (r.ret_10000*100).toFixed(1)+'%' : '\u2014'}</td>
+                </tr>`;
+            }
+            html += '</table>';
+            document.getElementById('resultsTable').innerHTML = html;
+        }
+
+        function renderCorrelation(data) {
+            if (!data.correlations) return;
+            let html = '<div class="correlation-box"><h3>Spearman Correlation vs Retention</h3>';
+            for (const [key, corr] of Object.entries(data.correlations)) {
+                const rho = corr.rho_retention;
+                if (rho === null) continue;
+                const cls = Math.abs(rho) > 0.6 ? '' : 'weak';
+                const sig = corr.p_retention < 0.05 ? ' *' : '';
+                html += `<div class="corr-row"><span class="metric">${corr.metric_name}</span><span class="rho ${cls}">\u03c1 = ${rho.toFixed(4)}${sig}</span></div>`;
+            }
+            if (data.best_metric) html += `<div style="margin-top:10px;font-size:10px;color:#22c55e;">Best: ${data.best_metric} (|\u03c1| = ${data.best_rho.toFixed(4)})</div>`;
+            html += '</div>';
+            document.getElementById('correlationSection').innerHTML = html;
+        }
+
+        function updateRunnerStatus(runner) {
+            const badge = document.getElementById('statusBadge');
+            const btnRun = document.getElementById('btnRunAll');
+            const btnStop = document.getElementById('btnStop');
+            const btnPause = document.getElementById('btnPause');
+            if (runner.running) {
+                const paused = runner.paused;
+                if (paused) {
+                    badge.className = 'status-badge running';
+                    badge.innerHTML = `<span class="status-dot idle"></span><span>PAUSED \u2014 ${runner.current_experiment}</span>`;
+                } else {
+                    badge.className = 'status-badge running';
+                    badge.innerHTML = `<span class="status-dot running"></span><span>${runner.current_experiment} \u2014 ${runner.current_phase}</span>`;
+                }
+                btnRun.disabled = true;
+                btnStop.style.display = '';
+                btnPause.style.display = '';
+                btnPause.textContent = paused ? 'Resume' : 'Pause';
+                btnPause.className = paused ? 'btn btn-primary' : 'btn btn-warning';
+            } else {
+                badge.className = 'status-badge idle';
+                badge.innerHTML = '<span class="status-dot idle"></span><span>Idle</span>';
+                btnRun.disabled = false;
+                btnStop.style.display = 'none';
+                btnPause.style.display = 'none';
+            }
+        }
+
+        const MAX_LOG_LINES = 300;
+
+        function appendLogs(lines) {
+            const el = document.getElementById('logContent');
+            const anchor = document.getElementById('scrollAnchor');
+            for (const line of lines) {
+                const div = document.createElement('div');
+                div.className = 'line';
+                if (line.includes('complete') || line.includes('Complete') || line.includes('saved') || line.includes('Skipping')) div.className += ' success';
+                else if (line.includes('ERROR') || line.includes('FAIL') || line.includes('Traceback')) div.className += ' error';
+                else if (line.includes('Starting') || line.includes('Queued') || line.includes('Phase') || line.includes('EXP-01')) div.className += ' highlight';
+                else if (line.includes('%|') || line.includes('Epoch')) div.className += ' progress';
+                div.textContent = line;
+                el.insertBefore(div, anchor);
+            }
+            // Trim old lines from the top to keep DOM small
+            const allLines = el.querySelectorAll('.line');
+            if (allLines.length > MAX_LOG_LINES) {
+                const excess = allLines.length - MAX_LOG_LINES;
+                for (let i = 0; i < excess; i++) allLines[i].remove();
+            }
+            if (autoScroll) scrollToBottom();
+        }
+
+        // ─── Init & Polling ───
+        fetchStatus();
+        fetchCorrelation();
+        fetchSystem();
+
+        setInterval(fetchStatus, 4000);
+        setInterval(fetchLogs, 2000);
+        setInterval(fetchSystem, 3000);
+    </script>
+</body>
+</html>

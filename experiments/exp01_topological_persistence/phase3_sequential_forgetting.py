@@ -19,8 +19,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from clearml import Task as ClearMLTask
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
 from experiments.shared.datasets import SplitCIFAR100
@@ -39,15 +37,6 @@ def main():
     forget_cfg = cfg["forgetting"]
     device = torch.device(cfg.get("device", "cuda") if torch.cuda.is_available() else "cpu")
     output_dir = cfg["output_dir"]
-
-    # ClearML experiment tracking
-    task = ClearMLTask.init(
-        project_name="EXP-01 Topological Persistence",
-        task_name="Phase 3 — Sequential Forgetting",
-        task_type=ClearMLTask.TaskTypes.training,
-    )
-    task.connect(cfg, name="config")
-    logger = task.get_logger()
 
     print("EXP-01 Phase 3: Sequential Forgetting Measurement")
     print(f"  Device: {device}")
@@ -72,14 +61,14 @@ def main():
     _, task_a_acc = load_checkpoint(ckpt_path, model)
     print(f"  Task A model accuracy: {task_a_acc:.1%}")
 
-    # Expand classifier for Task B classes
-    old_fc = model.fc
+    # Expand classifier for Task B classes (handle both .fc and .head)
+    fc_attr = "fc" if hasattr(model, "fc") else "head"
+    old_fc = getattr(model, fc_attr)
     new_fc = nn.Linear(old_fc.in_features, cfg["num_classes_a"] + cfg["num_classes_b"]).to(device)
-    # Copy Task A weights into first half
     with torch.no_grad():
         new_fc.weight[:cfg["num_classes_a"]] = old_fc.weight
         new_fc.bias[:cfg["num_classes_a"]] = old_fc.bias
-    model.fc = new_fc
+    setattr(model, fc_attr, new_fc)
 
     # Optimizer for Task B (train all parameters — this is the naive sequential baseline)
     optimizer = optim.SGD(
@@ -140,11 +129,6 @@ def main():
                     "forgetting": forgetting,
                 })
                 print(f"{step:6d} | {task_a_acc:8.1%} | {task_b_acc:8.1%} | {forgetting:9.1%}")
-
-                # Log to ClearML
-                logger.report_scalar("accuracy", "task_a_retention", iteration=step, value=task_a_acc)
-                logger.report_scalar("accuracy", "task_b_learning", iteration=step, value=task_b_acc)
-                logger.report_scalar("forgetting", "catastrophic", iteration=step, value=forgetting)
 
                 if forget_cfg.get("save_checkpoints"):
                     save_checkpoint(
