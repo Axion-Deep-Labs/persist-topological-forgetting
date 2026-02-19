@@ -22,14 +22,14 @@ training:
 
 landscape:
   num_directions: 2
-  steps_per_direction: 25
+  steps_per_direction: 50
   range: [-1.0, 1.0]
   filter_normalize: true
 
 topology:
   max_dimension: 1
   max_edge_length: 2.0
-  num_landscape_samples: 625
+  num_landscape_samples: 2500
 
 forgetting:
   eval_steps: [100, 500, 1000, 5000, 10000, 25000]

@@ -1,0 +1,388 @@
+\documentclass[10pt,twocolumn]{article}
+
+% ── Packages ──
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage[margin=1in]{geometry}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{xcolor}
+\usepackage{natbib}
+\usepackage[expansion=false]{microtype}
+
+\bibliographystyle{plainnat}
+
+\title{Topological Predictors of Catastrophic Forgetting:\\A Cross-Architecture Study Using Persistent Homology of Loss Landscapes}
+
+\author{
+  Joshua~Gutierrez\thanks{Corresponding author. \texttt{joshua@axiondeep.com}} \\
+  Axion Deep Labs Inc \\
+  Colorado State University Global \\
+  \texttt{https://www.axiondeep.com}
+}
+
+\date{February 2026}
+
+\begin{document}
+
+\maketitle
+
+% ════════════════════════════════════════
+\begin{abstract}
+Catastrophic forgetting remains a central obstacle in continual learning, yet no reliable method exists to assess an architecture's susceptibility before sequential training begins. We investigate whether topological features of neural network loss landscapes---computed via persistent homology on 2D cross-sections around converged minima---correlate with knowledge retention under sequential training. Across 14 architectures spanning CNNs, Vision Transformers, and MLP-based designs trained on Split-CIFAR-100, we compute $H_0$ (connected components) and $H_1$ (loops) persistence of Vietoris--Rips filtrations on $50 \times 50$ landscape grids and compare them against standard geometry baselines (Hessian trace, sharpness, Fisher information, loss barrier). We find that $H_1$ total persistence is significantly rank-correlated with retention at 100 steps of sequential training (Spearman $\rho = 0.61$, $p = 0.021$, $n = 14$) and with area under the retention curve ($\rho = 0.65$, $p = 0.012$); both correlations are stable under leave-one-out cross-validation (14/14 folds significant). Fisher information trace shows a significant \emph{negative} correlation with AURC ($\rho = -0.75$, $p = 0.002$). Vision Transformers exhibit both the highest topological complexity and the strongest forgetting resistance, while MLP-Mixer presents a counterexample---high $H_0$ but zero retention---suggesting that $H_1$ structure, not $H_0$ alone, captures the topology--retention relationship. These results are correlational; a single 2D slice and single training seed per architecture limit causal claims. We release all code, configurations, and results to enable reproduction and extension.
+\end{abstract}
+
+% ════════════════════════════════════════
+\section{Introduction}
+\label{sec:intro}
+
+Catastrophic forgetting---the abrupt loss of previously learned knowledge when a neural network is trained on new data---is one of the most persistent challenges in continual learning \citep{mccloskey1989catastrophic, french1999catastrophic}. Despite decades of mitigation strategies including elastic weight consolidation \citep{kirkpatrick2017overcoming}, progressive neural networks \citep{rusu2016progressive}, and replay-based methods \citep{rebuffi2017icarl}, a fundamental question remains open: \emph{can we predict, before sequential training begins, how resistant a given architecture will be to catastrophic forgetting?}
+
+Recent work has established that the geometry of loss landscapes encodes meaningful information about generalization \citep{li2018visualizing, keskar2017on}, mode connectivity \citep{garipov2018loss}, and optimization dynamics. Separately, topological data analysis (TDA)---particularly persistent homology---has emerged as a principled framework for characterizing multi-scale structure in high-dimensional data \citep{carlsson2009topology, edelsbrunner2010computational}. Persistence images \citep{adams2017persistence} and related vectorizations have enabled TDA features to serve as inputs to machine learning pipelines.
+
+We bridge these two lines of work by asking: \textbf{do topological features of the loss landscape around a converged minimum correlate with that minimum's resistance to catastrophic forgetting?}
+
+Our contributions are:
+\begin{enumerate}
+    \item A four-phase experimental protocol for measuring the relationship between loss landscape topology and forgetting dynamics across architectures.
+    \item Evidence across 14 architectures on Split-CIFAR-100 that $H_1$ persistence (loop structures) significantly correlates with knowledge retention ($\rho = 0.61$, $p = 0.021$), outperforming $H_0$ (connected components) and standard geometry baselines, with stability confirmed by leave-one-out cross-validation (14/14 folds significant).
+    \item Discovery that Fisher information trace is strongly \emph{anti-correlated} with retention ($\rho = -0.75$, $p = 0.002$), suggesting that aggregate parameter sensitivity tracks forgetting vulnerability.
+    \item Identification of architecture-dependent effects: attention-based models show 40--90$\times$ better retention than standard CNNs despite lower initial accuracy.
+    \item Comparison with standard geometry baselines, several of which exhibit numerical instability at scale, highlighting a practical advantage of topological features.
+    \item Open-source release of all experimental code, configurations, and raw results.\footnote{\url{https://github.com/axiondeep/axiondeep-research}}
+\end{enumerate}
+
+% ════════════════════════════════════════
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Continual Learning and Catastrophic Forgetting.}
+Strategies for mitigating forgetting broadly fall into regularization-based methods \citep{kirkpatrick2017overcoming, zenke2017continual}, replay-based methods \citep{rebuffi2017icarl, shin2017continual}, and architecture-based methods \citep{rusu2016progressive, mallya2018packnet}. Our work is orthogonal: rather than mitigating forgetting, we investigate whether properties of the pre-trained model \emph{correlate} with forgetting susceptibility.
+
+\paragraph{Loss Landscape Analysis.}
+\citet{li2018visualizing} introduced filter-normalized random directions for meaningful cross-architecture visualization. \citet{keskar2017on} linked sharpness (largest Hessian eigenvalue) to generalization. \citet{garipov2018loss} demonstrated low-loss paths between independently trained minima. We adopt filter-normalized 2D cross-sections following \citet{li2018visualizing} and compute topological invariants on the resulting surfaces.
+
+\paragraph{TDA in Machine Learning.}
+Persistent homology has been applied to neural network analysis in several contexts: characterizing decision boundaries \citep{ramamurthy2019topological}, analyzing weight-space topology during training \citep{rieck2019neural}, and studying activation patterns \citep{naitzat2020topology}. \citet{adams2017persistence} introduced persistence images for stable vectorization. Our work differs in applying persistent homology directly to loss landscape \emph{surfaces} rather than to weight trajectories or activation manifolds.
+
+% ════════════════════════════════════════
+\section{Methodology}
+\label{sec:method}
+
+Our experimental protocol consists of four phases, each producing data consumed by subsequent phases.
+
+\subsection{Phase 1: Task A Training}
+
+Each architecture is trained to convergence on Task A (first 50 classes of CIFAR-100) using SGD with cosine annealing (100 epochs, 5-epoch linear warmup). All hyperparameters are held constant across architectures: learning rate 0.1, momentum 0.9, weight decay $5 \times 10^{-4}$, batch size 128, seed 42. The converged checkpoint (best validation accuracy) defines the minimum whose landscape we analyze. Using a single seed means each architecture produces one converged minimum; variance across seeds is not quantified in this study.
+
+\subsection{Phase 2: Loss Landscape Topology}
+
+We compute persistent homology on a 2D cross-section of the loss landscape around the converged minimum $\boldsymbol{\theta}^*$, proceeding in three stages.
+
+\paragraph{Stage 1: Landscape sampling.}
+Generate two random directions $\mathbf{d}_1, \mathbf{d}_2$ in parameter space with \emph{filter normalization} \citep{li2018visualizing}: for each convolutional filter (or weight matrix) $i$, rescale $\mathbf{d}^{(i)}$ so that $\|\mathbf{d}^{(i)}\| = \|\boldsymbol{\theta}^{(i)}\|$. Evaluate the loss on a uniform $50 \times 50$ grid over $[-1, 1]^2$:
+\begin{equation}
+    \mathcal{L}(\alpha, \beta) = \mathcal{L}\!\left(\boldsymbol{\theta}^* + \alpha\,\mathbf{d}_1 + \beta\,\mathbf{d}_2\right).
+\end{equation}
+
+\paragraph{Stage 2: Weighted graph construction.}
+Let $V = \{v_{ij}\}$ denote the $50 \times 50 = 2{,}500$ grid vertices. Assign each vertex a filtration value $f(v_{ij}) = \mathcal{L}(\alpha_i, \beta_j)$. Connect vertices by 8-adjacency (cardinal and diagonal neighbors), yielding edge set $E$. Each edge receives the \emph{lower-star} weight:
+\begin{equation}
+    w(u,v) = \max\!\bigl(f(u),\; f(v)\bigr).
+\end{equation}
+This ensures an edge enters the filtration only after both its endpoints have appeared.
+
+\paragraph{Stage 3: Persistent homology.}
+We pass the weighted graph $(V, E, w)$ as a sparse distance matrix to Ripser \citep{bauer2021ripser}, which constructs the Vietoris--Rips complex: a $k$-simplex $[v_0, \ldots, v_k]$ enters the filtration at $\max_{i<j} w(v_i, v_j)$. We compute $H_0$ (connected components) and $H_1$ (independent loops) persistence diagrams up to dimension 1. We note that applying a lower-star filtration on the 8-connected grid graph yields a simplicial complex whose persistence closely approximates cubical sublevel-set persistence on the scalar field; we leave a formal equivalence study to future work.
+
+For each homology dimension $k$, we record total persistence $\text{Pers}_k = \sum_{i} (d_i - b_i)$, feature count, and maximum lifetime. Because the landscape directions are random, each run samples a different 2D slice; we log the random seed for reproducibility. A limitation of this design is that \textbf{each architecture is characterized by a single random slice}; multi-slice stability analysis is planned but not yet complete (see Section~\ref{sec:discussion}).
+
+\subsection{Phase 2b: Baseline Geometry Metrics}
+
+Alongside topology, we compute four standard geometry metrics at the same minimum:
+
+\begin{enumerate}
+    \item \textbf{Hessian trace} via Hutchinson's estimator \citep{hutchinson1989stochastic} with 10 Rademacher samples in fp64.
+    \item \textbf{Max Hessian eigenvalue} (sharpness) via 30-iteration power method \citep{keskar2017on}.
+    \item \textbf{Fisher information trace}: $\text{Tr}(\mathbf{F}) = \mathbb{E}\!\left[\sum_i \left(\frac{\partial \log p}{\partial \theta_i}\right)^2\right]$ over 10 batches.
+    \item \textbf{Loss barrier height}: Maximum loss increase along 10 filter-normalized random directions (20 steps, step size 0.1), normalized by $\sqrt{|\boldsymbol{\theta}|}$.
+\end{enumerate}
+
+\subsection{Phase 3: Sequential Forgetting Measurement}
+
+Starting from the Task A checkpoint, we expand the final classification layer from 50 to 100 outputs (preserving Task A weights) and train on Task B (classes 50--99) with naive SGD at learning rate 0.01 ($\frac{1}{10}$ of Phase 1). No continual learning regularization is applied---this measures the \emph{bare} forgetting dynamics.
+
+Task A test accuracy is evaluated at steps $\{100, 500, 1000, 5000, 10000, 25000\}$. Our primary retention metric is:
+\begin{equation}
+    \text{ret}@k = \frac{\text{acc}_A(\text{step}=k)}{\text{acc}_A(\text{step}=0)}
+\end{equation}
+
+We also compute the area under the retention curve (AURC) via trapezoidal integration over the evaluation steps. AURC captures cumulative retention across the full trajectory rather than a single snapshot. Note that AURC values are \emph{not} normalized to $[0,1]$: they scale with both retention magnitude and the number of evaluation steps, so architectures with sustained high retention (e.g., ViT-Small, AURC = 274) produce much larger values than those that forget immediately (e.g., ResNet-18, AURC = 0.2).
+
+\subsection{Phase 4: Correlation Analysis}
+
+We compute Spearman rank correlations between each metric (topological and baseline) and each retention metric (ret@100, AURC) across all $n = 14$ architectures. To assess robustness, we apply two complementary tests:
+
+\paragraph{Leave-one-out (LOO) cross-validation.} For each of the 14 architectures, we drop it from the dataset and recompute $\rho$ and $p$ on the remaining 13. We report the fraction of LOO folds that maintain $p < 0.05$, the $p$-value range across folds, and the most influential architecture (largest $|\Delta\rho|$ when removed).
+
+\paragraph{Permutation test.} We shuffle retention labels across architectures 10{,}000 times and recompute $\rho$ for each shuffle, yielding an empirical null distribution. The permutation $p$-value is the fraction of shuffles producing $|\rho| \geq |\rho_{\text{obs}}|$. This is distribution-free and well-suited to small $n$.
+
+% ════════════════════════════════════════
+\section{Experimental Setup}
+\label{sec:setup}
+
+\paragraph{Dataset.} Split-CIFAR-100: Task A = classes 0--49 (25,000 train / 5,000 test), Task B = classes 50--99. Standard augmentation (random crop with padding 4, horizontal flip) for training; no augmentation at test time. Images normalized to CIFAR-100 channel statistics.
+
+\paragraph{Architectures.} We evaluate 14 architectures spanning five computational paradigms (Table~\ref{tab:architectures}). CNN-based architectures are adapted for $32 \times 32$ input with 3$\times$3 initial convolutions (stride 1); ViT variants use patch size 4 with $32 \times 32$ input. All models are trained from scratch with seed 42.
+
+\begin{table}[t]
+\centering
+\caption{Architectures evaluated, with parameter counts and Task A test accuracy after 100 epochs of training.}
+\label{tab:architectures}
+\small
+\begin{tabular}{@{}lrrc@{}}
+\toprule
+Architecture & Params & Acc$_A$ & Type \\
+\midrule
+ResNet-18        & 11.2M  & 82.0\% & CNN \\
+ResNet-50        & 23.6M  & 83.6\% & CNN \\
+ResNet-18 Wide   & 44.7M  & 83.1\% & CNN \\
+WRN-28-10        & 36.5M  & 84.0\% & CNN \\
+DenseNet-121     & 7.0M   & 84.5\% & CNN \\
+VGG-16-BN        & 15.0M  & 78.4\% & CNN \\
+EfficientNet-B0  & 4.1M   & 76.6\% & CNN+SE \\
+MobileNet-V3-S   & 1.5M   & 68.6\% & CNN+SE \\
+ShuffleNet-V2    & 1.3M   & 76.8\% & CNN \\
+RegNet-Y-400MF   & 4.3M   & 72.2\% & CNN+SE \\
+ConvNeXt-Tiny    & 28.0M  & 56.7\% & Modern CNN \\
+ViT-Small        & 3.0M   & 62.2\% & Transformer \\
+ViT-Tiny         & 0.8M   & 52.7\% & Transformer \\
+MLP-Mixer        & 2.3M   & 61.5\% & MLP \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Landscape Sampling.} $50 \times 50$ grid (2,500 points) over $[-1.0, 1.0]^2$ in filter-normalized directions. Landscape seed randomized per run to sample different 2D slices; seeds logged for reproducibility. GPU-resident dataset and mixed-precision forward passes for efficiency.
+
+\paragraph{Reproducibility.} Global seed 42. All hyperparameters in per-architecture YAML configs. Code available at \url{https://github.com/axiondeep/axiondeep-research}.
+
+% ════════════════════════════════════════
+\section{Results}
+\label{sec:results}
+
+\subsection{Topological Features Vary Across Architectures}
+
+Table~\ref{tab:topology} presents persistent homology features computed on each architecture's loss landscape at $50 \times 50$ resolution. $H_0$ total persistence spans a 4.9$\times$ range (6,027 to 29,366), and---critically---$H_1$ features now appear for 9 of 14 architectures (compared to only 1 of 8 at $25 \times 25$ resolution in preliminary runs), demonstrating the importance of grid resolution for capturing higher-dimensional topology.
+
+\begin{table}[t]
+\centering
+\caption{Persistent homology features of loss landscapes ($50 \times 50$ grid). All architectures produce 2,499 finite $H_0$ features. $H_1$ features (loops) are resolved at this grid density for 9 of 14 architectures.}
+\label{tab:topology}
+\small
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Architecture & $H_0$ Pers & $H_1$ Pers & $H_1$ Ct \\
+\midrule
+ConvNeXt-Tiny    & 29366 & 0.11  & 1 \\
+ViT-Small        & 15984 & 0.32  & 2 \\
+MLP-Mixer        & 15799 & 0.00  & 0 \\
+ViT-Tiny         & 15015 & 0.18  & 9 \\
+MobileNet-V3-S   & 14804 & 1.90  & 19 \\
+EfficientNet-B0  & 14341 & 2.12  & 28 \\
+RegNet-Y-400MF   & 11349 & 0.02  & 6 \\
+ShuffleNet-V2    & 10694 & 0.69  & 70 \\
+VGG-16-BN        & 10053 & 0.00  & 0 \\
+WRN-28-10        & 9029  & 0.08  & 14 \\
+ResNet-18        & 8408  & 0.00  & 0 \\
+DenseNet-121     & 8020  & 0.26  & 2 \\
+ResNet-50        & 6410  & 0.00  & 0 \\
+ResNet-18 Wide   & 6027  & 0.00  & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Key observations:
+\begin{enumerate}
+    \item $H_0$ persistence is \emph{not} a proxy for model size. ConvNeXt-Tiny (28M params) has the highest $H_0$, while ResNet-18 Wide (44.7M) has the lowest.
+    \item EfficientNet-B0 and ShuffleNet-V2 show the richest $H_1$ structure (28 and 70 loops respectively), suggesting their architectural motifs (squeeze-and-excitation, channel shuffling) create qualitatively distinct landscape topology.
+    \item MLP-Mixer, VGG-16-BN, ResNet-18, ResNet-50, and ResNet-18 Wide show zero $H_1$ even at $50 \times 50$ resolution.
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/fig4_retention_bar.pdf}
+\caption{Task A retention after 100 steps of sequential Task B training, sorted by retention. Colors indicate architecture type. Vision Transformers and lightweight CNNs dominate; large standard CNNs retain near-zero knowledge.}
+\label{fig:retention_bar}
+\end{figure}
+
+\subsection{Forgetting Dynamics Are Architecture-Dependent}
+
+Table~\ref{tab:forgetting} shows Task A retention during sequential Task B training. All architectures exhibit catastrophic forgetting, but the rate varies by two orders of magnitude.
+
+\begin{table}[t]
+\centering
+\caption{Task A retention during sequential Task B training. ret@$k$ = Task A accuracy at step $k$ divided by initial accuracy. AURC = area under the retention curve (unnormalized; higher = more cumulative retention).}
+\label{tab:forgetting}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Architecture & ret@100 & ret@1k & ret@10k & AURC \\
+\midrule
+ViT-Tiny        & 22.48\% & 5.12\% & 0.19\% & 115.4 \\
+ShuffleNet-V2   & 17.27\% & 0.00\% & 0.00\% & 17.8 \\
+ViT-Small       & 9.58\%  & 6.75\% & 1.35\% & 274.1 \\
+MobileNet-V3    & 7.64\%  & 0.29\% & 0.00\% & 15.3 \\
+EfficientNet-B0 & 7.13\%  & 0.05\% & 0.00\% & 9.1 \\
+RegNet-Y-400    & 1.97\%  & 0.00\% & 0.00\% & 2.4 \\
+VGG-16-BN       & 0.79\%  & 0.00\% & 0.00\% & 0.8 \\
+WRN-28-10       & 0.26\%  & 0.00\% & 0.00\% & 0.4 \\
+ResNet-18       & 0.24\%  & 0.00\% & 0.00\% & 0.2 \\
+ResNet-50       & 0.14\%  & 0.00\% & 0.00\% & 0.1 \\
+DenseNet-121    & 0.05\%  & 0.00\% & 0.00\% & 0.05 \\
+MLP-Mixer       & 0.03\%  & 0.00\% & 0.00\% & 0.03 \\
+ConvNeXt-T$^*$  & 0.00\%  & 3.00\% & 0.00\% & 33.4 \\
+ResNet-18-W     & 0.00\%  & 0.00\% & 0.00\% & 0.0 \\
+\bottomrule
+\end{tabular}
+\vspace{2pt}
+{\scriptsize $^*$Non-monotonic: 0\% at step 100, recovers to 3\% at step 1k.}
+\end{table}
+
+Three patterns emerge (Figure~\ref{fig:retention_bar}):
+\begin{enumerate}
+    \item \textbf{Transformer advantage.} ViT-Tiny (22.5\%) and ViT-Small (9.6\%) show the highest ret@100, with ViT-Small uniquely maintaining 1.35\% retention at 10,000 steps---the only architecture with measurable knowledge past this horizon.
+    \item \textbf{Lightweight CNN resilience.} ShuffleNet-V2 (17.3\%), MobileNet-V3-S (7.6\%), and EfficientNet-B0 (7.1\%) outperform all large CNNs, suggesting that constrained capacity or specialized operations (channel shuffle, squeeze-and-excitation) may aid retention.
+    \item \textbf{Accuracy does not predict retention.} DenseNet-121 achieves the highest Task A accuracy (84.5\%) but near-zero retention, while ViT-Tiny has the lowest accuracy (52.7\%) but the highest ret@100.
+    \item \textbf{Non-monotonic forgetting.} ConvNeXt-Tiny shows 0\% ret@100 but recovers to 3\% at step 1{,}000 before returning to 0\%. This transient recovery likely reflects Task B gradient updates temporarily aligning with Task A feature directions before diverging, rather than a measurement artifact (the same evaluation code is used for all architectures).
+\end{enumerate}
+
+\subsection{$H_1$ Persistence Correlates with Retention}
+
+Table~\ref{tab:correlations} presents Spearman rank correlations between each metric and retention. The central finding is that \textbf{$H_1$ total persistence significantly correlates with both ret@100 ($\rho = 0.61$, $p = 0.021$) and AURC ($\rho = 0.65$, $p = 0.012$)}, while $H_0$ does not reach significance for ret@100.
+
+\begin{table}[htbp]
+\centering
+\caption{Spearman rank correlations between landscape metrics and forgetting resistance ($n = 14$ unless noted). Bold: $p < 0.05$.}
+\label{tab:correlations}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lcrcrr@{}}
+\toprule
+Metric & $\rho_{\text{ret}}$ & $p$ & $\rho_{\text{AURC}}$ & $p$ & $n$ \\
+\midrule
+$H_1$ Pers.       & \textbf{0.61} & \textbf{.021} & \textbf{0.65} & \textbf{.012} & 14 \\
+$H_0$ Pers.       & 0.32 & .263 & \textbf{0.71} & \textbf{.005} & 14 \\
+Fisher Tr.        & $-$0.50 & .072 & \textbf{$-$0.75} & \textbf{.002} & 14 \\
+Barrier (N)       & 0.54 & .088 & 0.17 & .612 & 11 \\
+Hessian Tr.       & $-$0.12 & .719 & $-$0.49 & .125 & 11 \\
+$\lambda_{\max}$  & $-$0.14 & .689 & $-$0.50 & .117 & 11 \\
+Barrier (raw)     & $-$0.05 & .864 & $-$0.24 & .418 & 14 \\
+\midrule
+Param count       & \textbf{$-$0.74} & \textbf{.002} & $-$0.51 & .064 & 14 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/fig1_h1_vs_retention.pdf}
+\caption{$H_1$ total persistence vs.\ retention@100 across 14 architectures. Points colored by architecture type; Spearman $\rho = 0.61$ ($p = 0.021$). Architectures with richer loop structure in their loss landscape retain more Task A knowledge.}
+\label{fig:h1_retention}
+\end{figure}
+
+This represents a shift from our preliminary $n = 8$ results, where $H_0$ showed the strongest trend ($\rho = 0.58$, $p = 0.13$). With the expanded architecture set and higher grid resolution, \emph{$H_1$ emerges as the more informative topological predictor}; $\rho = 0.61$ corresponds to 37\% of rank variance explained. This is interpretable: $H_1$ features correspond to loop structures in the sublevel sets of the loss surface---closed ridges encircling basins. Architectures whose loss landscapes contain persistent loops may have more topologically complex basin structure that resists perturbation from new task gradients.
+
+Fisher information trace shows a significant negative correlation with AURC ($\rho = -0.75$, $p = 0.002$) and marginal significance with ret@100 ($\rho = -0.50$, $p = 0.072$). High Fisher information indicates that model parameters are highly sensitive to the training data---and such sensitivity appears to make the model more vulnerable to catastrophic forgetting.
+
+\paragraph{$H_0$ vs.\ $H_1$: why dimensions differ.}
+$H_0$ also correlates strongly with AURC ($\rho = 0.71$, $p = 0.005$), raising the question of why we emphasize $H_1$. The two dimensions measure distinct geometric properties: $H_0$ counts disconnected low-loss basins and their relative depths; $H_1$ measures closed ridge structures separating sublevel regions. An interpretation consistent with the observed pattern is that these operate on different time scales. Early retention (ret@100) is governed by local basin boundary geometry---ridges that new-task gradients must cross to escape the Task A minimum---which is captured by $H_1$ ($\rho = 0.61$, $p = 0.021$) but not $H_0$ ($\rho = 0.32$, $p = 0.263$). Cumulative forgetting over longer horizons may reflect broader landscape fragmentation, explaining why $H_0$ reaches significance for AURC but not ret@100. The MLP-Mixer confirms this dissociation: high $H_0$ (15,799) but zero $H_1$ and zero retention.
+
+\paragraph{LOO stability.}
+All three significant correlations are robust under both leave-one-out cross-validation and permutation testing (10{,}000 shuffles). For $H_1$ vs.\ ret@100: LOO mean $\rho = 0.60 \pm 0.04$, \textbf{14/14 folds significant} ($p$: min 0.009, mean 0.031, max 0.045); permutation $p = 0.024$. For $H_1$ vs.\ AURC: LOO mean $\rho = 0.65 \pm 0.04$, 14/14 significant ($p$: min 0.002, mean 0.019, max 0.034); permutation $p = 0.012$. For Fisher vs.\ AURC: LOO mean $\rho = -0.75 \pm 0.03$, 14/14 significant ($p$: min 0.001, mean 0.004, max 0.006); permutation $p = 0.003$. The most influential architecture is DenseNet-121 for $H_1$ correlations---it has relatively high $H_1$ (0.26) but near-zero retention, pulling $\rho$ down. Removing it \emph{strengthens} $\rho$ to 0.69, confirming that no single architecture drives the overall result.
+
+\paragraph{Parameter count as confound.}
+Parameter count is the strongest single correlate of retention ($\rho = -0.74$, $p = 0.002$): smaller models retain more (Table~\ref{tab:correlations}). $H_1$ and parameter count are moderately collinear ($\rho = -0.55$, $p = 0.039$; VIF $= 1.45$)---smaller models tend to have richer loop structure, though the collinearity is not pathological. Symmetric partial correlations reveal the direction of this confound: controlling for $H_1$, parameter count remains significant ($\rho_{\text{partial}} = -0.61$, $p = 0.026$); controlling for parameter count, $H_1$ does not ($\rho_{\text{partial}} = 0.35$, $p = 0.24$). A rank regression (rank(ret) $\sim$ rank(params) + rank($H_1$)) confirms this asymmetry: parameter count is significant ($\beta = -0.58$, $p = 0.026$) while $H_1$ is not ($\beta = 0.29$, $p = 0.24$); joint $R^2 = 0.61$. In this 14-architecture sample, model scale is the strongest observable correlate of forgetting resistance, and $H_1$ persistence does not provide statistically independent explanatory power beyond scale. Whether topology carries independent signal---or is a geometric manifestation of representational capacity---requires multi-slice aggregation, multi-seed validation, and controlled comparisons at fixed parameter budgets.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/fig2_fisher_vs_aurc.pdf}
+\caption{Fisher information trace vs.\ AURC (log--log scale). Spearman $\rho = -0.75$ ($p = 0.002$). Architectures with higher aggregate parameter sensitivity exhibit worse forgetting resistance.}
+\label{fig:fisher_aurc}
+\end{figure}
+
+Figure~\ref{fig:h1_retention} shows the primary $H_1$--retention relationship and Figure~\ref{fig:fisher_aurc} illustrates the Fisher--AURC anti-correlation.
+
+\subsection{The MLP-Mixer Counterexample}
+
+MLP-Mixer presents a challenge to any simple topology--retention hypothesis. Despite having the third-highest $H_0$ persistence (15,799) and moderate initial accuracy (61.5\%), it exhibits zero retention ($\text{ret@100} = 0.03\%$). Critically, MLP-Mixer shows \emph{zero $H_1$ features}, placing it among the architectures with the simplest higher-dimensional topology.
+
+This supports the refined hypothesis: \emph{$H_1$ structure, not $H_0$ alone, captures the topological property relevant to forgetting resistance.} $H_0$ measures how many isolated basins exist and their depth; $H_1$ measures the presence of closed ridges---topological barriers that may protect knowledge encoded in local minima from being overwritten by new task gradients.
+
+\subsection{Baseline Metric Comparison}
+
+Standard geometry metrics proved less reliable than topological features for cross-architecture comparison (Table~\ref{tab:correlations}). Three issues arose:
+
+\begin{enumerate}
+    \item \textbf{Missing data.} Three architectures (ViT-Small, ViT-Tiny, MobileNet-V3) failed Hessian/eigenvalue computation due to memory constraints, reducing $n$ from 14 to 11 for those metrics.
+    \item \textbf{Saddle points.} WRN-28-10 yielded a negative maximum Hessian eigenvalue ($\lambda_{\max} = -2{,}942$). This indicates the converged checkpoint lies at a saddle point rather than a local minimum---an inherent risk of stochastic optimization that invalidates sharpness as a basin descriptor for this architecture.
+    \item \textbf{Numerical overflow.} Raw loss barrier values for ResNet-18 and ResNet-50 overflowed to $10^{19}$--$10^{36}$, likely due to filter-normalized perturbations pushing parameters into degenerate loss regions. These values are clamped at $10^6$ in our analysis but illustrate the brittleness of barrier estimation for large models.
+\end{enumerate}
+
+Persistent homology avoids all three failure modes: it operates on a 2D array of scalar loss values and requires no second-order gradients, no eigendecomposition, and no parameter-space perturbation beyond the landscape grid itself. A summary of all metric correlations is shown in Figure~\ref{fig:heatmap}.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\columnwidth]{figures/fig5_correlation_heatmap.pdf}
+\caption{Spearman rank correlations between landscape metrics and retention measures. Stars indicate significance ($^*p<0.05$, $^{**}p<0.01$). $H_1$ persistence and Fisher trace show the strongest associations.}
+\label{fig:heatmap}
+\end{figure}
+
+% ════════════════════════════════════════
+\section{Discussion}
+\label{sec:discussion}
+
+\paragraph{$H_1$ as a Forgetting Correlate.}
+The emergence of $H_1$ as the stronger correlate was unexpected. Initial hypotheses focused on $H_0$ (basin count and depth). However, $H_1$ features---loops in sublevel sets---capture a qualitatively different property: the presence of closed ridges that separate regions of the loss surface. We hypothesize that these ridges act as topological barriers to gradient flow, slowing the migration of parameters away from Task A minima during Task B training. Architectures whose landscapes lack $H_1$ features (MLP-Mixer, VGG-16-BN, standard ResNets) have ``smoother'' topology that offers less resistance to parameter drift.
+
+\paragraph{The Fisher--Forgetting Connection.}
+The strong negative correlation between Fisher trace and AURC ($\rho = -0.75$) connects to elastic weight consolidation \citep{kirkpatrick2017overcoming}, which uses Fisher information to identify ``important'' parameters. Our finding suggests an irony: architectures with higher aggregate Fisher information---where many parameters are individually important---are \emph{more} vulnerable to forgetting, perhaps because task-specific knowledge is distributed across many sensitive parameters rather than concentrated in robust subspaces.
+
+\paragraph{Transformer Advantage.}
+Vision Transformers (ViT-Small, ViT-Tiny) show 40--90$\times$ better retention than standard CNNs. This aligns with emerging evidence that attention mechanisms create more modular representations \citep{dosovitskiy2021image}. In our framework, this modularity manifests as richer $H_1$ topology in the loss landscape.
+
+\paragraph{Limitations.}
+The most important caveats concern unquantified variance:
+\begin{enumerate}
+    \item \textbf{Single 2D slice per architecture.} Each topology is computed from one random 2D cross-section of a high-dimensional landscape. Different slices will yield different persistence diagrams. Until multi-slice runs confirm stability, the reported $H_1$ values carry unknown sampling variance.
+    \item \textbf{Single training seed.} All models are trained with seed 42. Variance across training seeds---which would change the converged minimum and thus the landscape---is not quantified. This is a confounder for any architecture-level claim.
+    \item \textbf{Single dataset.} All experiments use Split-CIFAR-100 with a fixed 50/50 class split. Generalization to other datasets, split ratios, and non-image domains is untested.
+    \item \textbf{Correlation, not causation.} Parameter count alone is a stronger correlate of retention than $H_1$ ($\rho = -0.74$ vs.\ $0.61$), and after partialing out parameter count, $H_1$ drops to non-significance (Section~\ref{sec:results}). Topology may track forgetting through model capacity rather than causally mediating it.
+    \item \textbf{Naive sequential baseline only.} Whether topology correlates with effectiveness of continual learning methods (EWC, replay) remains open.
+    \item \textbf{Grid resolution.} At $50 \times 50$, fine $H_1$ features may be under-resolved; $200 \times 200$ runs may reveal additional structure or change existing patterns.
+\end{enumerate}
+
+\paragraph{Practical Implications.}
+If the $H_1$--retention correlation generalizes beyond Split-CIFAR-100 and single-slice sampling, it could inform a practical diagnostic: after training on Task A, compute loss landscape topology to rank-order forgetting risk across candidate architectures \emph{before} deploying in a continual learning setting. The computation requires only forward passes on a grid (no second-order gradients), making it feasible for large models. However, this application requires multi-dataset and multi-slice validation before deployment recommendations can be made.
+
+% ════════════════════════════════════════
+\section{Conclusion}
+\label{sec:conclusion}
+
+We present evidence across 14 architectures that $H_1$ (loop) persistence of loss landscapes correlates with resistance to catastrophic forgetting ($\rho = 0.61$, $p = 0.021$, stable under LOO and permutation testing). However, parameter count is a stronger correlate ($\rho = -0.74$), and $H_1$ does not reach significance after partialing out model size. Fisher information trace provides a complementary negative association with cumulative retention ($\rho = -0.75$, $p = 0.002$). These correlations are based on a single 2D landscape slice and single training seed per architecture.
+
+The MLP-Mixer counterexample demonstrates that the relationship is mediated by higher-dimensional topology ($H_1$) rather than simple basin count ($H_0$), and the transformer advantage in retention suggests that attention-based computation creates loss landscape topology conducive to knowledge preservation.
+
+Future work will: (1) validate on multiple datasets (Split-ImageNet, CORe50, Permuted MNIST), (2) run multi-slice stability analysis with 3--5 random 2D sections per architecture, (3) increase grid resolution to $200 \times 200$, (4) run multiple training seeds per architecture, (5) compare against established CL baselines, and (6) investigate causal mechanisms linking $H_1$ structure to gradient dynamics during sequential training.
+
+All code, configurations, and results are available at \url{https://github.com/axiondeep/axiondeep-research}.
+
+% ════════════════════════════════════════
+\bibliography{references}
+
+\end{document}

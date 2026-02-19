@@ -21,7 +21,7 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
-from experiments.shared.datasets import SplitCIFAR100
+from experiments.shared.datasets import get_split_dataset
 from experiments.shared.models import get_model
 from experiments.shared.utils import set_seed, load_config, load_checkpoint, save_checkpoint, evaluate
 
@@ -30,6 +30,8 @@ def main():
     parser = argparse.ArgumentParser(description="EXP-01 Phase 3: Sequential Forgetting")
     parser.add_argument("--config", type=str, default="configs/exp01.yaml")
     parser.add_argument("--checkpoint", type=str, default=None)
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Override config seed (for multi-seed runs)")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -38,15 +40,22 @@ def main():
     device = torch.device(cfg.get("device", "cuda") if torch.cuda.is_available() else "cpu")
     output_dir = cfg["output_dir"]
 
+    # Multi-seed support: override seed and redirect output
+    if args.seed is not None:
+        cfg["seed"] = args.seed
+        output_dir = os.path.join(output_dir, f"seed{args.seed}")
+        cfg["output_dir"] = output_dir
+
     print("EXP-01 Phase 3: Sequential Forgetting Measurement")
     print(f"  Device: {device}")
+    print(f"  Seed: {cfg['seed']}")
     print(f"  Eval steps: {forget_cfg['eval_steps']}")
     print()
 
     set_seed(cfg["seed"])
 
     # Data
-    data = SplitCIFAR100(cfg["data_dir"], split_at=cfg["task_a_classes"][1])
+    data = get_split_dataset(cfg)
     _, task_a_test = data.get_task_a(batch_size=256)
     task_b_train, task_b_test = data.get_task_b(batch_size=train_cfg["batch_size"])
 
@@ -62,13 +71,28 @@ def main():
     print(f"  Task A model accuracy: {task_a_acc:.1%}")
 
     # Expand classifier for Task B classes (handle both .fc and .head)
+    # Also handle Sequential classifiers (e.g., MobileNet-V3-Small)
     fc_attr = "fc" if hasattr(model, "fc") else "head"
     old_fc = getattr(model, fc_attr)
-    new_fc = nn.Linear(old_fc.in_features, cfg["num_classes_a"] + cfg["num_classes_b"]).to(device)
-    with torch.no_grad():
-        new_fc.weight[:cfg["num_classes_a"]] = old_fc.weight
-        new_fc.bias[:cfg["num_classes_a"]] = old_fc.bias
-    setattr(model, fc_attr, new_fc)
+
+    if isinstance(old_fc, nn.Sequential):
+        # Find the last Linear layer in the Sequential
+        last_linear_idx = None
+        for idx, layer in enumerate(old_fc):
+            if isinstance(layer, nn.Linear):
+                last_linear_idx = idx
+        old_linear = old_fc[last_linear_idx]
+        new_linear = nn.Linear(old_linear.in_features, cfg["num_classes_a"] + cfg["num_classes_b"]).to(device)
+        with torch.no_grad():
+            new_linear.weight[:cfg["num_classes_a"]] = old_linear.weight
+            new_linear.bias[:cfg["num_classes_a"]] = old_linear.bias
+        old_fc[last_linear_idx] = new_linear
+    else:
+        new_fc = nn.Linear(old_fc.in_features, cfg["num_classes_a"] + cfg["num_classes_b"]).to(device)
+        with torch.no_grad():
+            new_fc.weight[:cfg["num_classes_a"]] = old_fc.weight
+            new_fc.bias[:cfg["num_classes_a"]] = old_fc.bias
+        setattr(model, fc_attr, new_fc)
 
     # Optimizer for Task B (train all parameters — this is the naive sequential baseline)
     optimizer = optim.SGD(

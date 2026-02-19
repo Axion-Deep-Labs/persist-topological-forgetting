@@ -20,7 +20,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 # Add project root to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
-from experiments.shared.datasets import SplitCIFAR100
+from experiments.shared.datasets import get_split_dataset
 from experiments.shared.models import get_model
 from experiments.shared.utils import set_seed, load_config, save_checkpoint, evaluate
 
@@ -51,6 +51,8 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device):
 def main():
     parser = argparse.ArgumentParser(description="EXP-01 Phase 1: Train on Task A")
     parser.add_argument("--config", type=str, default="configs/exp01.yaml")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Override config seed (for multi-seed runs)")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -58,16 +60,23 @@ def main():
     device = torch.device(cfg.get("device", "cuda") if torch.cuda.is_available() else "cpu")
     output_dir = cfg["output_dir"]
 
+    # Multi-seed support: override seed and redirect output
+    if args.seed is not None:
+        cfg["seed"] = args.seed
+        output_dir = os.path.join(output_dir, f"seed{args.seed}")
+        cfg["output_dir"] = output_dir
+
     print(f"EXP-01 Phase 1: Train on Task A")
     print(f"  Device: {device}")
     print(f"  Architecture: {cfg['architecture']}")
+    print(f"  Seed: {cfg['seed']}")
     print(f"  Output: {output_dir}")
     print()
 
     set_seed(cfg["seed"])
 
     # Data
-    data = SplitCIFAR100(cfg["data_dir"], split_at=cfg["task_a_classes"][1])
+    data = get_split_dataset(cfg)
     train_loader, test_loader = data.get_task_a(batch_size=train_cfg["batch_size"])
     print(f"  Task A: {len(train_loader.dataset)} train, {len(test_loader.dataset)} test samples")
 

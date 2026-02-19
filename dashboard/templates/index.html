@@ -170,7 +170,7 @@
         /* Results mini */
         .exp-results {
             font-size: 10px; color: #888;
-            display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px;
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px;
         }
         .exp-results .label { color: #444; }
         .exp-results .value { color: #a78bfa; font-weight: 600; }
@@ -267,8 +267,16 @@
                 <span class="status-dot idle"></span><span>Idle</span>
             </span>
             <button id="btnRunAll" class="btn btn-primary" onclick="runAll()">Run All Remaining</button>
+            <button id="btnRunBoth" class="btn btn-primary" onclick="runAllBoth()" style="background:#059669;" title="Run remaining for CIFAR-100 + CIFAR-10">Run Both Datasets</button>
             <button id="btnPause" class="btn btn-warning" onclick="pauseRun()" style="display:none;">Pause</button>
             <button id="btnStop" class="btn btn-danger" onclick="stopRun()" style="display:none;">Stop</button>
+            <select id="p2Multiplier" style="background:#1e1e3a;color:#a78bfa;border:1px solid #2a2a4a;border-radius:6px;padding:5px 8px;font-family:inherit;font-size:11px;">
+                <option value="1">1x</option>
+                <option value="3">3x</option>
+                <option value="5" selected>5x</option>
+                <option value="10">10x</option>
+            </select>
+            <button class="btn btn-secondary" onclick="rerunAllPhase('phase2')">Re-run All P2</button>
             <button class="btn btn-secondary" onclick="runCorrelation()">Run Correlation</button>
         </div>
     </div>
@@ -311,7 +319,11 @@
     <div class="main">
         <!-- Left: experiments -->
         <div class="experiments">
-            <div class="section-title">Architectures</div>
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
+                <div class="section-title" style="margin-bottom:0;">Architectures</div>
+                <button id="btnCifar100" class="btn btn-sm btn-primary" onclick="switchDataset('cifar100')">CIFAR-100</button>
+                <button id="btnCifar10" class="btn btn-sm btn-secondary" onclick="switchDataset('cifar10')">CIFAR-10</button>
+            </div>
             <div id="expGrid" class="exp-grid"></div>
             <div class="section-title">Results Comparison</div>
             <div id="resultsTable"></div>
@@ -358,6 +370,21 @@
                 // User scrolled up — don't force scroll
             }
         });
+
+        // ─── Dataset Switch ───
+        let activeDataset = 'cifar100';
+        async function switchDataset(ds) {
+            await fetch('/api/dataset', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({dataset: ds}),
+            });
+            activeDataset = ds;
+            document.getElementById('btnCifar100').className = ds === 'cifar100' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary';
+            document.getElementById('btnCifar10').className = ds === 'cifar10' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary';
+            fetchStatus();
+            fetchCorrelation();
+        }
 
         // ─── System Monitor ───
         async function fetchSystem() {
@@ -436,6 +463,17 @@
             fetchStatus(); fetchLogs();
         }
 
+        async function runAllBoth() {
+            const res = await fetch('/api/run', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({mode: 'all_remaining_both'}),
+            });
+            logOffset = 0;
+            document.getElementById('logContent').innerHTML = '<div class="log-scroll-anchor" id="scrollAnchor"></div>';
+            fetchStatus(); fetchLogs();
+        }
+
         async function runExperiment(expId) {
             await fetch('/api/run', {
                 method: 'POST',
@@ -467,6 +505,43 @@
             const data = await res.json();
             if (data.output) appendLogs(data.output.split('\n').filter(l => l));
             fetchCorrelation();
+        }
+
+        async function rerunPhase(expId, phaseId) {
+            if (!confirm(`Re-run ${phaseId} for ${expId}? Existing results will be backed up.`)) return;
+            await fetch('/api/rerun', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ experiment: expId, phase: phaseId }),
+            });
+            logOffset = 0;
+            document.getElementById('logContent').innerHTML = '<div class="log-scroll-anchor" id="scrollAnchor"></div>';
+            fetchStatus(); fetchLogs();
+        }
+
+        async function rerunAllPhase(phaseId) {
+            const mult = phaseId === 'phase2' ? parseInt(document.getElementById('p2Multiplier').value) : 1;
+            const multStr = mult > 1 ? ` (${mult}x slices each)` : '';
+            if (!confirm(`Re-run ${phaseId} for ALL architectures${multStr}?`)) return;
+            await fetch('/api/rerun', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ phase: phaseId, multiplier: mult }),
+            });
+            logOffset = 0;
+            document.getElementById('logContent').innerHTML = '<div class="log-scroll-anchor" id="scrollAnchor"></div>';
+            fetchStatus(); fetchLogs();
+        }
+
+        async function runSingle(expId, phaseId) {
+            await fetch('/api/run', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ mode: 'single', experiment: expId, phase: phaseId }),
+            });
+            logOffset = 0;
+            document.getElementById('logContent').innerHTML = '<div class="log-scroll-anchor" id="scrollAnchor"></div>';
+            fetchStatus(); fetchLogs();
         }
 
         async function fetchCorrelation() {
@@ -505,9 +580,19 @@
                         <div class="exp-results">
                             <div><span class="label">Acc: </span><span class="value">${r.accuracy ? (r.accuracy*100).toFixed(1)+'%' : '\u2014'}</span></div>
                             <div><span class="label">H0: </span><span class="value">${r.h0_persistence ? r.h0_persistence.toFixed(1) : '\u2014'}</span></div>
+                            <div><span class="label">H1: </span><span class="value">${r.h1_persistence ? r.h1_persistence.toFixed(2) : '0.0'}</span></div>
                             <div><span class="label">Ret@100: </span><span class="value">${r.ret_100 !== undefined ? (r.ret_100*100).toFixed(1)+'%' : '\u2014'}</span></div>
                         </div>
-                        ${!allComplete ? `<div class="exp-actions"><button class="btn btn-sm btn-secondary" onclick="runExperiment('${exp.id}')">Run Remaining</button></div>` : ''}
+                        <div class="exp-actions" style="display:flex;gap:4px;flex-wrap:wrap;">
+                            ${['phase1','phase2','phase3'].map((pid, i) => {
+                                const label = ['P1','P2','P3'][i];
+                                if (exp.phases[pid] === 'complete') {
+                                    return `<button class="btn btn-sm btn-warning" onclick="rerunPhase('${exp.id}','${pid}')">Re-run ${label}</button>`;
+                                } else {
+                                    return `<button class="btn btn-sm btn-secondary" onclick="runSingle('${exp.id}','${pid}')">Run ${label}</button>`;
+                                }
+                            }).join('')}
+                        </div>
                     </div>`;
             }).join('');
         }
@@ -519,7 +604,7 @@
                 return;
             }
             let html = `<table class="results-table"><tr>
-                <th>Architecture</th><th>Params</th><th>Acc</th><th>H0</th>
+                <th>Architecture</th><th>Params</th><th>Acc</th><th>H0</th><th>H1</th>
                 <th>Hess.Tr</th><th>MaxEig</th><th>Fisher</th><th>Ret@100</th><th>Ret@10k</th></tr>`;
             for (const exp of complete) {
                 const r = exp.results;
@@ -527,6 +612,7 @@
                     <td>${exp.name}</td><td>${exp.params}</td>
                     <td>${r.accuracy ? (r.accuracy*100).toFixed(1)+'%' : '\u2014'}</td>
                     <td>${r.h0_persistence ? r.h0_persistence.toFixed(1) : '\u2014'}</td>
+                    <td>${r.h1_persistence ? r.h1_persistence.toFixed(2) : '0.0'}</td>
                     <td>${r.hessian_trace ? r.hessian_trace.toFixed(1) : '\u2014'}</td>
                     <td>${r.max_eigenvalue ? r.max_eigenvalue.toFixed(1) : '\u2014'}</td>
                     <td>${r.fisher_trace ? r.fisher_trace.toFixed(1) : '\u2014'}</td>

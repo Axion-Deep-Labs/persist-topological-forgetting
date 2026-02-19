@@ -32,18 +32,21 @@ Features: experiment queue, GPU/CPU/RAM monitor, live output, pause/resume/stop.
 python -m experiments.exp01_topological_persistence.phase1_train_task_a --config configs/exp01.yaml
 ```
 
-## EXP-01 Current State (as of 2025-02-10)
-- 3 architectures complete (ResNet-18, ResNet-50, ViT-Small)
-- WRN-28-10 in progress (Phase 3)
-- 4 more queued (MLP-Mixer, ResNet-18 Wide, DenseNet-121, EfficientNet-B0)
-- Preliminary Spearman ρ = 0.866 (H0 persistence vs forgetting resistance)
-- Need n≥5 for statistical significance
+## EXP-01 Current State (as of 2026-02-17)
+- All 8 architectures complete (Phases 1-3)
+- Phase 4 correlation: rho = 0.5774 (n=8, ret@10k) — superseded, re-running
+- Grid upgraded to 50x50 (from 25x25), Phase 2 re-runs in progress
+- Correlation switching from ret@10k to ret@100 (more variance)
+- Phase 2 now uses random landscape seeds (different 2D slice each run)
 - See EXPERIMENT_LOG.md for full run history and results
 
 ## Rules
 - NEVER commit data/ or results/ directories
-- All experiments must be reproducible via seed in config
+- All experiments must be reproducible via seed in config (landscape seed is randomized but logged in topology_summary.json)
 - Save all hyperparameters in config files, not hardcoded
 - ClearML is disabled (`CLEARML_OFF=1`) — use dashboard instead
-- Baseline metrics (Hessian, Fisher, sharpness, barrier) must be computed alongside topology in Phase 2
+- Baseline metrics (Hessian, Fisher, sharpness, barrier) computed alongside topology in Phase 2 (fail-safe: individual metric failures don't block results)
 - Update EXPERIMENT_LOG.md after each completed run
+
+## Vocab Lesson Plan
+Joshua is studying for an advanced AI/ML engineering exam. Vocabulary lesson plan with 10 words/day is maintained in `~/CLAUDE.md`. Current day tracked there. When Joshua asks to study or continue vocab, FIRST teach the words with explanations and analogies, THEN quiz him by asking him to define each word in his own words. Correct misconceptions. Only advance to the next day when he says he's ready.

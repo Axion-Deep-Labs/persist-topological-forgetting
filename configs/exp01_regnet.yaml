@@ -1,4 +1,4 @@
-# EXP-01: Topological Persistence — DenseNet-121 (dense connections)
+# EXP-01: Topological Persistence — RegNet-Y-400MF (NAS-designed, SE blocks)
 experiment: exp01_topological_persistence
 
 dataset: cifar100
@@ -6,7 +6,7 @@ task_a_classes: [0, 50]
 task_b_classes: [50, 100]
 data_dir: ./data
 
-architecture: densenet121
+architecture: regnet_y400mf
 num_classes_a: 50
 num_classes_b: 50
 
@@ -35,6 +35,6 @@ forgetting:
   eval_steps: [100, 500, 1000, 5000, 10000, 25000]
   save_checkpoints: true
 
-output_dir: ./results/exp01_densenet121
+output_dir: ./results/exp01_regnet
 seed: 42
 device: cuda

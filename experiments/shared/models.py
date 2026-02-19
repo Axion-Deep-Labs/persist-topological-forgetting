@@ -6,7 +6,11 @@ All models accept num_classes parameter for split-task training.
 
 import torch
 import torch.nn as nn
-from torchvision.models import resnet18, resnet50, densenet121, efficientnet_b0
+from torchvision.models import (
+    resnet18, resnet50, densenet121, efficientnet_b0,
+    vgg16_bn, convnext_tiny, mobilenet_v3_small,
+    shufflenet_v2_x1_0, regnet_y_400mf,
+)
 
 
 def get_resnet18(num_classes: int = 50, pretrained: bool = False) -> nn.Module:
@@ -352,6 +356,175 @@ def get_efficientnet_b0(num_classes: int = 50, pretrained: bool = False) -> nn.M
     return EfficientNetB0Wrapper(num_classes=num_classes)
 
 
+# ─── VGG-16-BN ───
+
+class VGG16BNWrapper(nn.Module):
+    """VGG-16 with batch normalization for CIFAR-100 (32x32). ~15M params.
+
+    Classic deep CNN with no skip connections. Tests whether pure depth
+    without residual paths creates topological persistence.
+    Uses .fc for classifier compatibility.
+    """
+    def __init__(self, num_classes=50):
+        super().__init__()
+        base = vgg16_bn(weights=None)
+        # Adapt classifier for CIFAR-100 (smaller spatial dims than ImageNet)
+        self.features = base.features
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Linear(512, num_classes)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        return self.fc(x)
+
+
+def get_vgg16_bn(num_classes: int = 50, pretrained: bool = False) -> nn.Module:
+    """VGG-16-BN for CIFAR-100."""
+    return VGG16BNWrapper(num_classes=num_classes)
+
+
+# ─── ConvNeXt-Tiny ───
+
+class ConvNeXtTinyWrapper(nn.Module):
+    """ConvNeXt-Tiny for CIFAR-100 (32x32). ~28M params.
+
+    Modern CNN inspired by Vision Transformers (patchify stem, LayerNorm,
+    inverted bottleneck). Uses .fc for classifier compatibility.
+    """
+    def __init__(self, num_classes=50):
+        super().__init__()
+        base = convnext_tiny(weights=None)
+        # Replace stem's first conv to handle 32x32 (original: 4x4 stride 4)
+        base.features[0][0] = nn.Conv2d(3, 96, kernel_size=3, stride=1, padding=1)
+        self.features = base.features
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Linear(768, num_classes)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        return self.fc(x)
+
+
+def get_convnext_tiny(num_classes: int = 50, pretrained: bool = False) -> nn.Module:
+    """ConvNeXt-Tiny for CIFAR-100."""
+    return ConvNeXtTinyWrapper(num_classes=num_classes)
+
+
+# ─── MobileNet-V3-Small ───
+
+class MobileNetV3SmallWrapper(nn.Module):
+    """MobileNet-V3-Small for CIFAR-100 (32x32). ~1.5M params.
+
+    Lightweight architecture with squeeze-and-excitation, hardswish.
+    Very different inductive bias from ResNets. Uses .fc for compatibility.
+    """
+    def __init__(self, num_classes=50):
+        super().__init__()
+        base = mobilenet_v3_small(weights=None)
+        # Replace first conv for CIFAR-100 (no stride-2 downsampling)
+        base.features[0][0] = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
+        self.features = base.features
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(576, 256),
+            nn.Hardswish(),
+            nn.Linear(256, num_classes),
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        return self.fc(x)
+
+
+def get_mobilenet_v3_small(num_classes: int = 50, pretrained: bool = False) -> nn.Module:
+    """MobileNet-V3-Small for CIFAR-100."""
+    return MobileNetV3SmallWrapper(num_classes=num_classes)
+
+
+# ─── ViT-Tiny ───
+
+def get_vit_tiny(num_classes: int = 50, pretrained: bool = False) -> nn.Module:
+    """Tiny ViT (2 layers, 128 embed dim) for CIFAR-100. ~0.8M params.
+
+    Smaller than ViT-Small to test if transformer topology pattern holds at
+    smaller scale.
+    """
+    return ViTSmall(
+        num_classes=num_classes,
+        embed_dim=128,
+        depth=2,
+        num_heads=4,
+        mlp_ratio=2.0,
+    )
+
+
+# ─── ShuffleNet-V2 ───
+
+class ShuffleNetV2Wrapper(nn.Module):
+    """ShuffleNet-V2 x1.0 for CIFAR-100 (32x32). ~1.3M params.
+
+    Channel shuffle operations for efficient feature mixing.
+    Uses .fc for classifier compatibility.
+    """
+    def __init__(self, num_classes=50):
+        super().__init__()
+        base = shufflenet_v2_x1_0(weights=None)
+        # Replace first conv for CIFAR-100
+        base.conv1[0] = nn.Conv2d(3, 24, kernel_size=3, stride=1, padding=1, bias=False)
+        base.maxpool = nn.Identity()
+        self.features = nn.Sequential(base.conv1, base.maxpool, base.stage2, base.stage3, base.stage4, base.conv5)
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Linear(1024, num_classes)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        return self.fc(x)
+
+
+def get_shufflenet_v2(num_classes: int = 50, pretrained: bool = False) -> nn.Module:
+    """ShuffleNet-V2 for CIFAR-100."""
+    return ShuffleNetV2Wrapper(num_classes=num_classes)
+
+
+# ─── RegNet-Y-400MF ───
+
+class RegNetY400MFWrapper(nn.Module):
+    """RegNet-Y-400MF for CIFAR-100 (32x32). ~4.3M params.
+
+    Systematically designed (NAS-like) architecture with squeeze-and-excitation.
+    Uses .fc for classifier compatibility.
+    """
+    def __init__(self, num_classes=50):
+        super().__init__()
+        base = regnet_y_400mf(weights=None)
+        # Replace stem conv for CIFAR-100
+        base.stem[0] = nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1, bias=False)
+        self.stem = base.stem
+        self.trunk = nn.Sequential(base.trunk_output)
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Linear(440, num_classes)
+
+    def forward(self, x):
+        x = self.stem(x)
+        x = self.trunk(x)
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        return self.fc(x)
+
+
+def get_regnet_y400mf(num_classes: int = 50, pretrained: bool = False) -> nn.Module:
+    """RegNet-Y-400MF for CIFAR-100."""
+    return RegNetY400MFWrapper(num_classes=num_classes)
+
+
 def get_model(architecture: str, num_classes: int = 50, **kwargs) -> nn.Module:
     """Factory function for model creation."""
     models = {
@@ -363,6 +536,12 @@ def get_model(architecture: str, num_classes: int = 50, **kwargs) -> nn.Module:
         "resnet18_wide": get_resnet18_wide,
         "densenet121": get_densenet121,
         "efficientnet_b0": get_efficientnet_b0,
+        "vgg16_bn": get_vgg16_bn,
+        "convnext_tiny": get_convnext_tiny,
+        "mobilenet_v3_small": get_mobilenet_v3_small,
+        "vit_tiny": get_vit_tiny,
+        "shufflenet_v2": get_shufflenet_v2,
+        "regnet_y400mf": get_regnet_y400mf,
     }
     if architecture not in models:
         raise ValueError(f"Unknown architecture: {architecture}. Available: {list(models.keys())}")
