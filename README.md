@@ -2,26 +2,59 @@
 
 **Axion Deep Labs** | [axiondeep.com](https://www.axiondeep.com)
 
-Does the topological structure of a neural network's loss landscape correlate with resistance to catastrophic forgetting?
+Catastrophic forgetting remains one of the central obstacles in continual learning. Most mitigation methods focus on regularization or replay, treating the symptom rather than examining the structure. We ask a different question: is a model's susceptibility to forgetting encoded in the geometry of its loss landscape before any sequential training occurs?
 
-We compute persistent homology on 2D cross-sections of loss landscapes across 14 architectures trained on Split-CIFAR-100 (and Split-CIFAR-10), then measure how topological features relate to knowledge retention under naive sequential training.
+Standard curvature metrics (Hessian trace, sharpness) measure how steep the basin is. Topology measures something different: the *connectivity structure* of the loss surface — whether the basin is a smooth bowl, a fragmented archipelago, or a landscape threaded with ridges that form loops. We compute persistent homology on 2D cross-sections of loss landscapes across 14 architectures, then correlate topological features with knowledge retention under naive sequential training.
 
-## Key Findings (n=14, CIFAR-100)
+```
+  Smooth basin (H1 = 0)          Basin with loop (H1 > 0)
 
-| Metric | ρ (ret@100) | p | p_Bonf | τ (Kendall) |
-|--------|------------|---|--------|-------------|
-| **H1 persistence** (loops) | **0.61** | 0.021 | 0.210 | 0.47 |
-| H0 persistence (components) | 0.32 | 0.263 | 1.000 | 0.24 |
-| Fisher trace | −0.50 | 0.072 | 0.720 | −0.38 |
-| **Parameter count** | **−0.74** | 0.002 | **0.020** | −0.60 |
+       ___________                    ___________
+      /           \                  /     __    \
+     /             \                /     /  \    \
+    /               \              /     / ridge   \
+   /    minimum      \            /    minimum \    \
+  /                   \          /         \___|    \
+ /                     \        /                    \
+```
 
-**Statistical rigor:** 10 metrics tested; Bonferroni-adjusted α = 0.005. Only parameter count survives multiple-comparison correction. H1 is nominally significant (p = 0.021) but does not survive Bonferroni (p_Bonf = 0.21). Kendall's tau, which is more robust to ties at small n, confirms the ranking.
+## Scientific Question
 
-**Important caveat:** Parameter count is the strongest single correlate of retention. After partialing out model size, H1 drops to non-significance (partial ρ = 0.35, p = 0.24, VIF = 1.45). Multi-slice stability analysis and CIFAR-10 replication are in progress to determine whether topology carries independent signal beyond capacity.
+Does topological structure of the loss landscape predict forgetting resistance? And if so, does topology capture something that model size alone does not?
 
-All correlations confirmed via leave-one-out cross-validation (14/14 folds significant) and permutation testing (10,000 shuffles).
+## Main Findings
 
-## Architectures
+### The tension: topology correlates, but scale dominates
+
+Across 14 architectures on CIFAR-100, H1 persistence (loop structure in the loss landscape) correlates with knowledge retention at ρ = 0.61 (p = 0.021), explaining 37% of rank variance. But parameter count correlates more strongly (ρ = −0.74, p = 0.002), and after partialing out model size, H1 drops to non-significance (partial ρ = 0.35, p = 0.24).
+
+Smaller models retain more. Smaller models also tend to have more topological complexity. The question is whether topology carries independent signal or merely tracks scale.
+
+### The most interesting result: within-class signal
+
+When we restrict analysis to CNNs only (n=11), removing the confound of architecture-family differences, H1 re-emerges as a significant predictor of retention. This suggests that *within an architecture family*, where parameter count varies less dramatically, topological structure does carry information about forgetting resistance that scale alone does not explain.
+
+This is the core scientific tension of the project, and the finding that will determine whether PERSIST yields a correlational curiosity or a geometric insight.
+
+### Where we stand honestly
+
+| Finding | Status |
+|---------|--------|
+| H1 correlates with retention (ρ = 0.61) | Nominally significant, does not survive Bonferroni |
+| Parameter count dominates (ρ = −0.74) | Survives Bonferroni (p_Bonf = 0.02) |
+| H1 independent of scale? | Not yet — partial ρ = 0.35, p = 0.24 |
+| Within-CNN H1 signal | Significant, needs width-controlled validation |
+| CIFAR-10 replication | In progress, limited by floor effect |
+
+## Caveats
+
+- **Multiple comparisons:** 10 metrics tested; Bonferroni-adjusted α = 0.005. Only parameter count survives correction. H1 is nominally significant (p = 0.021, p_Bonf = 0.21).
+- **Parameter count confound:** H1 and params are collinear (ρ = −0.55, VIF = 1.45). Rank regression R² = 0.61 with only params significant.
+- **CIFAR-10 floor effect:** Retention collapses to near-zero for most architectures by step 100, limiting statistical power on the second dataset.
+- **Multi-slice status:** Infrastructure supports 5 independent random 2D slices per architecture. A seed bug was recently fixed; true independent slices are pending re-run. Results shown are from the initial runs.
+- **Sample size:** n = 14 architectures. Small-sample rank correlation should be interpreted with caution.
+
+## Architectures (n=14, CIFAR-100)
 
 | Architecture | Params | Task A Acc | ret@100 | H1 Pers | Type |
 |---|---|---|---|---|---|
@@ -40,55 +73,73 @@ All correlations confirmed via leave-one-out cross-validation (14/14 folds signi
 | ConvNeXt-Tiny | 28.0M | 56.7% | 0.0%* | 0.11 | Modern CNN |
 | ResNet-18 Wide | 44.7M | 83.1% | 0.0% | 0.00 | CNN |
 
-*ConvNeXt shows non-monotonic recovery (0% → 3% → 0%).
+*ConvNeXt shows non-monotonic recovery (0% -> 3% -> 0%).
 
-## Experimental Pipeline
+## Experimental Design
+
+### Pipeline
 
 ```
-Phase 1:   Train on Task A (classes 0-49)  →  converged checkpoint
-Phase 2:   Sample 50×50 loss landscape     →  persistent homology (H0, H1)
-         + Baseline metrics                →  Hessian, Fisher, sharpness, barrier
-         + Landscape validation            →  NaN/Inf/degeneracy checks
-Phase 2b:  Displacement analysis           →  trajectory through landscape after forgetting
-Phase 3:   Train on Task B (classes 50-99) →  forgetting curve at 8 intervals
-         + Task B learning validation      →  warn if Task B fails to converge
-Phase 4:   Spearman + Kendall correlation  →  Bonferroni, LOO, permutation, partials
+Phase 1:   Train on Task A (classes 0-49)  ->  converged checkpoint
+Phase 2:   Sample 50x50 loss landscape     ->  persistent homology (H0, H1)
+         + Baseline metrics                ->  Hessian, Fisher, sharpness, barrier
+         + Landscape validation            ->  NaN/Inf/degeneracy checks
+Phase 2b:  Displacement analysis           ->  trajectory through landscape after forgetting
+Phase 3:   Train on Task B (classes 50-99) ->  forgetting curve at 8 intervals
+         + Task B learning validation      ->  warn if Task B fails to converge
+Phase 4:   Spearman + Kendall correlation  ->  Bonferroni, LOO, permutation, partials
 ```
 
-### Multi-slice & Multi-seed
+### Topology construction
 
-Each architecture gets 5 random 2D landscape slices for stability analysis:
+1. **Landscape sampling:** Two filter-normalized random directions (Li et al., 2018). Loss evaluated on a 50x50 grid over [-1, 1]^2. Grid validated for NaN/Inf/degeneracy.
+2. **Weighted graph:** 8-connected grid with lower-star edge weights: w(u,v) = max(f(u), f(v)).
+3. **Persistent homology:** Sparse distance matrix -> Ripser -> H0 (components) and H1 (loops) persistence diagrams.
+4. **Multi-slice:** 5 independent random 2D slices per architecture; Phase 4 aggregates (mean +/- std).
 
-```bash
-# Multiple random 2D cross-sections per architecture (run-id 1-4, plus default)
-python -m experiments.exp01_topological_persistence.phase2_landscape_topology \
-    --config configs/exp01.yaml --run-id 1
+### Statistical methods
 
-# Multiple training seeds
-python -m experiments.exp01_topological_persistence.phase1_train_task_a \
-    --config configs/exp01.yaml --seed 123
-```
+- **Spearman rank correlation** + **Kendall's tau** (more robust to ties at small n)
+- **Bonferroni correction** for multiple testing (10 metrics, adjusted alpha = 0.005)
+- **Partial correlation** controlling for parameter count
+- **Symmetric partials** + rank regression + VIF to disentangle H1 vs params
+- **Permutation test** (10,000 shuffles) for non-parametric significance
+- **Leave-one-out** cross-validation (min/mean/max p-values across folds)
 
-Phase 4 automatically aggregates across slices (mean ± std) when multiple `topology_summary_run*.json` files exist.
+### Full correlation table
 
-## Quick Start
+| Metric | rho (ret@100) | p | p_Bonf | tau (Kendall) |
+|--------|------------|---|--------|-------------|
+| **H1 persistence** (loops) | **0.61** | 0.021 | 0.210 | 0.47 |
+| H0 persistence (components) | 0.32 | 0.263 | 1.000 | 0.24 |
+| Fisher trace | -0.50 | 0.072 | 0.720 | -0.38 |
+| **Parameter count** | **-0.74** | 0.002 | **0.020** | -0.60 |
+
+LOO cross-validation: 14/14 folds significant for H1. Permutation p ~ 0.02.
+
+## Reproducibility
 
 ```bash
 # Setup
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
+python -m venv .venv && source .venv/bin/activate && pip install -e .
 
 # Run via dashboard (recommended)
-.venv/bin/python dashboard/app.py
-# Open http://localhost:5050
+.venv/bin/python dashboard/app.py    # http://localhost:5050
 
 # Or run manually
 python -m experiments.exp01_topological_persistence.phase1_train_task_a --config configs/exp01.yaml
 python -m experiments.exp01_topological_persistence.phase2_landscape_topology --config configs/exp01.yaml
 python -m experiments.exp01_topological_persistence.phase3_sequential_forgetting --config configs/exp01.yaml
 
-# Cross-architecture correlation (after multiple architectures complete)
+# Multi-slice (run-id 1-4, plus default = 5 slices)
+python -m experiments.exp01_topological_persistence.phase2_landscape_topology \
+    --config configs/exp01.yaml --run-id 1
+
+# Multi-seed
+python -m experiments.exp01_topological_persistence.phase1_train_task_a \
+    --config configs/exp01.yaml --seed 123
+
+# Cross-architecture correlation (after all architectures complete)
 python -m experiments.exp01_topological_persistence.phase4_correlation \
     --results-dirs results/exp01 results/exp01_resnet50 results/exp01_vit \
     results/exp01_wrn2810 results/exp01_mlpmixer results/exp01_resnet18wide \
@@ -97,43 +148,26 @@ python -m experiments.exp01_topological_persistence.phase4_correlation \
     results/exp01_shufflenet results/exp01_regnet
 ```
 
-## Project Structure
+Phase 4 automatically aggregates across slices (mean +/- std) when multiple `topology_summary_run*.json` files exist.
+
+## Engineering Details
+
+### Project structure
 
 ```
-├── configs/                  # YAML configs (one per architecture × dataset)
-├── dashboard/                # Flask dashboard (localhost:5050)
-├── experiments/
-│   ├── shared/               # Datasets, models (14 archs), baseline metrics, utils
-│   └── exp01_.../            # Phase 1-4 scripts + Phase 2b displacement analysis
-├── paper/                    # LaTeX draft + figures
-├── scripts/                  # Batch runners
-├── results/                  # Output (gitignored)
-└── data/                     # Datasets (gitignored, auto-downloaded)
+configs/                  # YAML configs (one per architecture x dataset)
+dashboard/                # Flask dashboard (localhost:5050)
+experiments/
+  shared/                 # Datasets, models (14 archs), baseline metrics, utils
+  exp01_.../              # Phase 1-4 scripts + Phase 2b displacement analysis
+paper/                    # LaTeX draft + figures
+results/                  # Output (gitignored)
+data/                     # Datasets (gitignored, auto-downloaded)
 ```
 
-## Topology Construction
+### Dashboard
 
-1. **Landscape sampling:** Generate two filter-normalized random directions (Li et al., 2018). Evaluate loss on a 50×50 grid over [-1, 1]². Validated for NaN/Inf/degeneracy.
-2. **Weighted graph:** 8-connected grid graph with lower-star edge weights: w(u,v) = max(f(u), f(v)).
-3. **Persistent homology:** Sparse distance matrix → Ripser (Vietoris-Rips complex) → H0 and H1 persistence diagrams.
-4. **Multi-slice stability:** 5 independent random slices per architecture; Phase 4 aggregates (mean ± std).
-
-## Statistical Analysis
-
-- **Spearman rank correlation** + **Kendall's tau** (robust to ties at small n)
-- **Bonferroni correction** for multiple testing (10 metrics, adjusted α = 0.005)
-- **Partial correlation** controlling for parameter count (confound analysis)
-- **Symmetric partials** + rank regression to disentangle H1 vs params
-- **Permutation test** (10,000 shuffles) for non-parametric significance
-- **Leave-one-out** cross-validation (min/mean/max p-values across folds)
-
-## Hardware
-
-- GPU: NVIDIA GeForce RTX 4090 (24 GB VRAM)
-- CPU: AMD Ryzen 9 9900X
-- RAM: 64 GB DDR5
-- ~20 min per architecture for full pipeline (Phase 1-3)
-- ~20 hours for all 14 architectures × 2 datasets × 5 slices
+The Flask dashboard (port 5050) provides: experiment queue with auto-chaining, per-phase re-run, multi-slice progress tracking, Clean & Rebuild for invalidated runs, and live GPU/CPU monitoring.
 
 ## References
 
@@ -141,7 +175,6 @@ python -m experiments.exp01_topological_persistence.phase4_correlation \
 - Bauer (2021) — Ripser: efficient computation of Vietoris-Rips persistence barcodes
 - Kirkpatrick et al. (2017) — Overcoming catastrophic forgetting in neural networks
 - Keskar et al. (2017) — On large-batch training for deep learning
-- Whitley et al. — Fitness landscape structure, local optima networks
 
 ## License
 
