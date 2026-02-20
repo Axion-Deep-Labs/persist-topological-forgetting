@@ -270,14 +270,10 @@
             <button id="btnRunBoth" class="btn btn-primary" onclick="runAllBoth()" style="background:#059669;" title="Run remaining for CIFAR-100 + CIFAR-10">Run Both Datasets</button>
             <button id="btnPause" class="btn btn-warning" onclick="pauseRun()" style="display:none;">Pause</button>
             <button id="btnStop" class="btn btn-danger" onclick="stopRun()" style="display:none;">Stop</button>
-            <select id="p2Multiplier" style="background:#1e1e3a;color:#a78bfa;border:1px solid #2a2a4a;border-radius:6px;padding:5px 8px;font-family:inherit;font-size:11px;">
-                <option value="1">1x</option>
-                <option value="3">3x</option>
-                <option value="5" selected>5x</option>
-                <option value="10">10x</option>
-            </select>
             <button class="btn btn-secondary" onclick="rerunAllPhase('phase2')">Re-run All P2</button>
+            <button class="btn btn-secondary" onclick="rerunAllPhase('phase3')">Re-run All P3</button>
             <button class="btn btn-secondary" onclick="runCorrelation()">Run Correlation</button>
+            <button class="btn btn-danger" onclick="cleanRebuild()" title="Delete invalid slice data (seed bug) + old forgetting curves (eval_steps changed), then rebuild all">Clean &amp; Rebuild</button>
         </div>
     </div>
 
@@ -520,16 +516,25 @@
         }
 
         async function rerunAllPhase(phaseId) {
-            const mult = phaseId === 'phase2' ? parseInt(document.getElementById('p2Multiplier').value) : 1;
-            const multStr = mult > 1 ? ` (${mult}x slices each)` : '';
-            if (!confirm(`Re-run ${phaseId} for ALL architectures${multStr}?`)) return;
+            const sliceNote = phaseId === 'phase2' ? ' (all 5 slices)' : '';
+            if (!confirm(`Re-run ${phaseId} for ALL architectures${sliceNote}?`)) return;
             await fetch('/api/rerun', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ phase: phaseId, multiplier: mult }),
+                body: JSON.stringify({ phase: phaseId }),
             });
             logOffset = 0;
             document.getElementById('logContent').innerHTML = '<div class="log-scroll-anchor" id="scrollAnchor"></div>';
+            fetchStatus(); fetchLogs();
+        }
+
+        async function cleanRebuild() {
+            if (!confirm('This will:\n1. Delete invalid Phase 2 slice data (seed bug fix)\n2. Archive Phase 3 forgetting curves (eval_steps changed)\n3. Queue all remaining phases for BOTH datasets\n\nProceed?')) return;
+            const res = await fetch('/api/clean_rebuild', {method: 'POST'});
+            const data = await res.json();
+            logOffset = 0;
+            document.getElementById('logContent').innerHTML = '<div class="log-scroll-anchor" id="scrollAnchor"></div>';
+            if (data.message) appendLogs([data.message]);
             fetchStatus(); fetchLogs();
         }
 
@@ -571,11 +576,24 @@
                             <span class="exp-params">${exp.params}</span>
                         </div>
                         <div class="phases">
-                            ${['phase1','phase2','phase3'].map((pid, i) => {
-                                let cls = exp.phases[pid];
-                                if (isRunning && runner.current_phase === ['Train Task A','Landscape Topology','Sequential Forgetting'][i]) cls = 'running';
-                                return `<div class="phase ${cls}">${['P1 Train','P2 Topo','P3 Forget'][i]}</div>`;
-                            }).join('')}
+                            ${(() => {
+                                // P1
+                                let p1cls = exp.phases.phase1 || 'pending';
+                                if (isRunning && runner.current_phase === 'Train Task A') p1cls = 'running';
+                                // P2: aggregate across all 5 slices
+                                const p2ids = ['phase2','phase2_run1','phase2_run2','phase2_run3','phase2_run4'];
+                                const p2done = p2ids.filter(p => exp.phases[p] === 'complete').length;
+                                let p2cls = p2done === 5 ? 'complete' : (p2done > 0 ? 'complete' : 'pending');
+                                const p2Running = isRunning && runner.current_phase && runner.current_phase.includes('Landscape');
+                                if (p2Running) p2cls = 'running';
+                                const p2label = p2done === 5 ? 'P2 5/5' : (p2done > 0 ? 'P2 ' + p2done + '/5' : 'P2 Topo');
+                                // P3
+                                let p3cls = exp.phases.phase3 || 'pending';
+                                if (isRunning && runner.current_phase === 'Sequential Forgetting') p3cls = 'running';
+                                return `<div class="phase ${p1cls}">P1 Train</div>`
+                                     + `<div class="phase ${p2cls}">${p2label}</div>`
+                                     + `<div class="phase ${p3cls}">P3 Forget</div>`;
+                            })()}
                         </div>
                         <div class="exp-results">
                             <div><span class="label">Acc: </span><span class="value">${r.accuracy ? (r.accuracy*100).toFixed(1)+'%' : '\u2014'}</span></div>
@@ -605,19 +623,21 @@
             }
             let html = `<table class="results-table"><tr>
                 <th>Architecture</th><th>Params</th><th>Acc</th><th>H0</th><th>H1</th>
-                <th>Hess.Tr</th><th>MaxEig</th><th>Fisher</th><th>Ret@100</th><th>Ret@10k</th></tr>`;
+                <th>Ret@10</th><th>Ret@25</th><th>Ret@50</th><th>Ret@100</th><th>Ret@500</th><th>Ret@1k</th></tr>`;
             for (const exp of complete) {
                 const r = exp.results;
+                const fmt = (v) => v !== undefined ? (v*100).toFixed(1)+'%' : '\u2014';
                 html += `<tr>
                     <td>${exp.name}</td><td>${exp.params}</td>
                     <td>${r.accuracy ? (r.accuracy*100).toFixed(1)+'%' : '\u2014'}</td>
                     <td>${r.h0_persistence ? r.h0_persistence.toFixed(1) : '\u2014'}</td>
                     <td>${r.h1_persistence ? r.h1_persistence.toFixed(2) : '0.0'}</td>
-                    <td>${r.hessian_trace ? r.hessian_trace.toFixed(1) : '\u2014'}</td>
-                    <td>${r.max_eigenvalue ? r.max_eigenvalue.toFixed(1) : '\u2014'}</td>
-                    <td>${r.fisher_trace ? r.fisher_trace.toFixed(1) : '\u2014'}</td>
-                    <td>${r.ret_100 !== undefined ? (r.ret_100*100).toFixed(1)+'%' : '\u2014'}</td>
-                    <td>${r.ret_10000 !== undefined ? (r.ret_10000*100).toFixed(1)+'%' : '\u2014'}</td>
+                    <td>${fmt(r.ret_10)}</td>
+                    <td>${fmt(r.ret_25)}</td>
+                    <td>${fmt(r.ret_50)}</td>
+                    <td>${fmt(r.ret_100)}</td>
+                    <td>${fmt(r.ret_500)}</td>
+                    <td>${fmt(r.ret_1000)}</td>
                 </tr>`;
             }
             html += '</table>';

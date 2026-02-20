@@ -44,7 +44,7 @@ topology:
 
 # --- Forgetting Measurement (Phase 3) ---
 forgetting:
-  eval_steps: [100, 500, 1000, 5000, 10000, 25000]
+  eval_steps: [10, 25, 50, 100, 250, 500, 1000, 5000]
   save_checkpoints: true
 
 # --- Output ---

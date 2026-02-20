@@ -32,12 +32,16 @@ Features: experiment queue, GPU/CPU/RAM monitor, live output, pause/resume/stop.
 python -m experiments.exp01_topological_persistence.phase1_train_task_a --config configs/exp01.yaml
 ```
 
-## EXP-01 Current State (as of 2026-02-17)
-- All 8 architectures complete (Phases 1-3)
-- Phase 4 correlation: rho = 0.5774 (n=8, ret@10k) — superseded, re-running
-- Grid upgraded to 50x50 (from 25x25), Phase 2 re-runs in progress
-- Correlation switching from ret@10k to ret@100 (more variance)
-- Phase 2 now uses random landscape seeds (different 2D slice each run)
+## EXP-01 Current State (as of 2026-02-20)
+- All 14 architectures complete on CIFAR-100 (Phases 1, 2 ×5 slices, 3)
+- CIFAR-10: 6/14 complete, 7 remaining (resume via dashboard)
+- Phase 4 correlation (n=14, CIFAR-100): H1 ρ=0.61 (p=0.021, p_Bonf=0.21), params ρ=−0.74 (p=0.002, p_Bonf=0.02)
+- Bonferroni correction + Kendall's tau added to Phase 4
+- Landscape validation (NaN/Inf checks) added to Phase 2
+- Task B learning validation added to Phase 3
+- Phase 2b multi-slice fallback support added
+- Dashboard: 5 landscape slices, Clean & Rebuild, Re-run All P3
+- **Note:** Phase 2 seed bug fixed — existing multi-slice runs need re-run
 - See EXPERIMENT_LOG.md for full run history and results
 
 ## Rules

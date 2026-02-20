@@ -311,6 +311,7 @@ def cross_architecture_analysis(result_dirs):
         if ret_100 is None:
             last_point = forget["curve"][-1]
             ret_100 = last_point["task_a_acc"]
+            print(f"  WARNING: step 100 not found for {rdir}, using step {last_point['step']} instead")
 
         retention = ret_100 / forget["initial_task_a_acc"]
         auc = compute_forgetting_auc(forget)
@@ -318,9 +319,10 @@ def cross_architecture_analysis(result_dirs):
         # Count params
         num_params = count_model_params(rdir)
 
-        # Get architecture class
+        # Get architecture class (strip dataset suffix for lookup)
         label = os.path.basename(rdir)
-        arch_name, arch_class = ARCH_CLASSES.get(label, (label, "Unknown"))
+        lookup_key = label.replace("_cifar10", "").replace("_cifar100", "")
+        arch_name, arch_class = ARCH_CLASSES.get(lookup_key, (label, "Unknown"))
 
         entry = {
             "label": label,
@@ -369,11 +371,17 @@ def cross_architecture_analysis(result_dirs):
     retention_vals = [d["retention_100"] for d in all_data]
     auc_vals = [d["forgetting_auc"] for d in all_data]
 
+    # Multiple testing correction (Bonferroni)
+    num_tests = len(METRICS)
+    bonf_alpha = 0.05 / num_tests
+
     print(f"\n{'=' * 70}")
     print(f"SPEARMAN RANK CORRELATION (n={len(all_data)} architectures)")
+    print(f"  Bonferroni correction: {num_tests} tests, α_adj = {bonf_alpha:.4f}")
+    print(f"  Significance: ** = survives Bonferroni, * = nominal p<0.05 only")
     print(f"{'=' * 70}")
-    print(f"\n{'Metric':>30} | {'ρ (ret@100)':>11} | {'p-value':>9} | {'ρ (AUC)':>10} | {'p-value':>9} | {'Sig?':>4} | {'Avail':>5}")
-    print("-" * 100)
+    print(f"\n{'Metric':>30} | {'ρ (ret)':>8} | {'p':>8} | {'p_bonf':>8} | {'τ (ret)':>8} | {'ρ (AUC)':>8} | {'Sig':>3} | {'n':>3}")
+    print("-" * 95)
 
     best_metric = None
     best_rho = -1
@@ -384,21 +392,24 @@ def cross_architecture_analysis(result_dirs):
         non_none = [(v, r, a) for v, r, a in zip(vals, retention_vals, auc_vals) if v is not None]
 
         if len(non_none) < 3:
-            print(f"{metric_name:>30} | {'N/A':>11} | {'N/A':>9} | {'N/A':>10} | {'N/A':>9} | {'N/A':>4} | {len(non_none):>3}/{len(all_data)}")
+            print(f"{metric_name:>30} | {'N/A':>8} | {'N/A':>8} | {'N/A':>8} | {'N/A':>8} | {'N/A':>8} | {'':>3} | {len(non_none):>3}")
             continue
 
         m_vals, m_ret, m_auc = zip(*non_none)
 
         # Check for constant input
         if len(set(m_vals)) <= 1:
-            print(f"{metric_name:>30} | {'constant':>11} | {'N/A':>9} | {'constant':>10} | {'N/A':>9} | {'N/A':>4} | {len(non_none):>3}/{len(all_data)}")
+            print(f"{metric_name:>30} | {'const':>8} | {'N/A':>8} | {'N/A':>8} | {'N/A':>8} | {'const':>8} | {'':>3} | {len(non_none):>3}")
             continue
 
         rho_ret, p_ret = stats.spearmanr(m_vals, m_ret)
         rho_auc, p_auc = stats.spearmanr(m_vals, m_auc)
-        sig = "YES" if p_ret < 0.05 else "no"
+        tau_ret, tau_p_ret = stats.kendalltau(m_vals, m_ret)
+        tau_auc, tau_p_auc = stats.kendalltau(m_vals, m_auc)
+        p_bonf = min(p_ret * num_tests, 1.0)
+        sig = "**" if p_bonf < 0.05 else ("*" if p_ret < 0.05 else "")
 
-        print(f"{metric_name:>30} | {rho_ret:>11.4f} | {p_ret:>9.4f} | {rho_auc:>10.4f} | {p_auc:>9.4f} | {sig:>4} | {len(non_none):>3}/{len(all_data)}")
+        print(f"{metric_name:>30} | {rho_ret:>8.4f} | {p_ret:>8.4f} | {p_bonf:>8.4f} | {tau_ret:>8.4f} | {rho_auc:>8.4f} | {sig:>3} | {len(non_none):>3}")
 
         all_results[metric_key] = {
             "metric_name": metric_name,
@@ -406,8 +417,13 @@ def cross_architecture_analysis(result_dirs):
             "n_available": len(non_none),
             "rho_retention": float(rho_ret) if not np.isnan(rho_ret) else None,
             "p_retention": float(p_ret) if not np.isnan(p_ret) else None,
+            "p_bonferroni_retention": float(p_bonf),
             "rho_auc": float(rho_auc) if not np.isnan(rho_auc) else None,
             "p_auc": float(p_auc) if not np.isnan(p_auc) else None,
+            "kendall_tau_retention": float(tau_ret) if not np.isnan(tau_ret) else None,
+            "kendall_p_retention": float(tau_p_ret) if not np.isnan(tau_p_ret) else None,
+            "kendall_tau_auc": float(tau_auc) if not np.isnan(tau_auc) else None,
+            "kendall_p_auc": float(tau_p_auc) if not np.isnan(tau_p_auc) else None,
         }
 
         if not np.isnan(rho_ret) and abs(rho_ret) > best_rho:
@@ -616,21 +632,29 @@ def cross_architecture_analysis(result_dirs):
 
         # Report H0
         if h0_result and h0_result["rho_retention"] is not None:
-            h0_rho = abs(h0_result["rho_retention"])
             h0_p = h0_result["p_retention"]
-            if h0_p < 0.05:
-                print(f"\n  ★ H0 SIGNIFICANT: ρ={h0_result['rho_retention']:.4f}, p={h0_p:.4f}")
+            h0_pb = h0_result.get("p_bonferroni_retention", h0_p * num_tests)
+            h0_tau = h0_result.get("kendall_tau_retention")
+            tau_str = f", τ={h0_tau:.4f}" if h0_tau is not None else ""
+            if h0_pb < 0.05:
+                print(f"\n  ★ H0 SIGNIFICANT (Bonferroni): ρ={h0_result['rho_retention']:.4f}, p={h0_p:.4f}, p_bonf={h0_pb:.4f}{tau_str}")
+            elif h0_p < 0.05:
+                print(f"\n  ◐ H0 nominal p<0.05 but NOT Bonferroni: ρ={h0_result['rho_retention']:.4f}, p={h0_p:.4f}, p_bonf={h0_pb:.4f}{tau_str}")
             else:
-                print(f"\n  ○ H0 NOT SIGNIFICANT: ρ={h0_result['rho_retention']:.4f}, p={h0_p:.4f}")
+                print(f"\n  ○ H0 NOT SIGNIFICANT: ρ={h0_result['rho_retention']:.4f}, p={h0_p:.4f}{tau_str}")
 
         # Report H1
         if h1_result and h1_result["rho_retention"] is not None:
-            h1_rho = abs(h1_result["rho_retention"])
             h1_p = h1_result["p_retention"]
-            if h1_p < 0.05:
-                print(f"  ★ H1 SIGNIFICANT: ρ={h1_result['rho_retention']:.4f}, p={h1_p:.4f}")
+            h1_pb = h1_result.get("p_bonferroni_retention", h1_p * num_tests)
+            h1_tau = h1_result.get("kendall_tau_retention")
+            tau_str = f", τ={h1_tau:.4f}" if h1_tau is not None else ""
+            if h1_pb < 0.05:
+                print(f"  ★ H1 SIGNIFICANT (Bonferroni): ρ={h1_result['rho_retention']:.4f}, p={h1_p:.4f}, p_bonf={h1_pb:.4f}{tau_str}")
+            elif h1_p < 0.05:
+                print(f"  ◐ H1 nominal p<0.05 but NOT Bonferroni: ρ={h1_result['rho_retention']:.4f}, p={h1_p:.4f}, p_bonf={h1_pb:.4f}{tau_str}")
             else:
-                print(f"  ○ H1 NOT SIGNIFICANT: ρ={h1_result['rho_retention']:.4f}, p={h1_p:.4f}")
+                print(f"  ○ H1 NOT SIGNIFICANT: ρ={h1_result['rho_retention']:.4f}, p={h1_p:.4f}{tau_str}")
 
         # Report params baseline
         params_result = all_results.get("num_params")
@@ -654,8 +678,16 @@ def cross_architecture_analysis(result_dirs):
         "correlations": all_results,
         "best_metric": best_metric,
         "best_rho": float(best_rho) if best_rho > 0 else None,
+        "multiple_testing": {
+            "method": "Bonferroni",
+            "num_tests": num_tests,
+            "bonferroni_alpha": float(bonf_alpha),
+        },
     }
-    out_path = os.path.join(os.path.dirname(result_dirs[0]), "correlation_results.json")
+    # Detect dataset from directory names
+    first_label = os.path.basename(result_dirs[0])
+    dataset_tag = "_cifar10" if first_label.endswith("_cifar10") else "_cifar100"
+    out_path = os.path.join(os.path.dirname(result_dirs[0]), f"correlation_results{dataset_tag}.json")
     with open(out_path, "w") as f:
         json.dump(results, f, indent=2)
     print(f"\n  Results saved to: {out_path}")

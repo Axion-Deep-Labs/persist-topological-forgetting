@@ -165,15 +165,26 @@ def main():
             if step >= max_steps:
                 break
 
+    # Check Task B learning quality
+    final_point = forgetting_curve[-1]
+    final_b_acc = final_point.get("task_b_acc", 0.0)
+    num_b_classes = cfg["num_classes_b"]
+    chance_level = 1.0 / num_b_classes
+    if final_b_acc < chance_level * 2:
+        print(f"\n  WARNING: Task B barely learned (final acc = {final_b_acc:.1%}, chance = {chance_level:.1%})")
+        print(f"  Retention metric may not reflect true forgetting resistance.")
+
     # Save forgetting curve
     with open(os.path.join(forget_dir, "forgetting_curve.json"), "w") as f:
         json.dump({
             "initial_task_a_acc": initial_a_acc,
             "checkpoint": ckpt_path,
+            "final_task_b_acc": final_b_acc,
             "curve": forgetting_curve,
         }, f, indent=2)
 
     print(f"\nPhase 3 complete. Forgetting curve saved to: {forget_dir}/")
+    print(f"  Final Task B accuracy: {final_b_acc:.1%}")
     print(f"\nNext: Run phase4_correlation.py to correlate topology with retention.")
 
 

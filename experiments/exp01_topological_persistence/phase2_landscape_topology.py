@@ -207,9 +207,16 @@ def main():
     print(f"  Max homology dim: {topo_cfg['max_dimension']}")
     print()
 
-    set_seed(cfg["seed"])
+    # Incorporate run_id into base seed so each multi-slice run gets
+    # genuinely different random directions (seed bug fix: without this,
+    # set_seed(42) always produces landscape_seed=478163327)
+    run_offset = int(args.run_id) if args.run_id else 0
+    set_seed(cfg["seed"] + run_offset)
 
-    # Load data (use test set for landscape evaluation — smaller, deterministic)
+    # Load data — use test set for landscape evaluation:
+    # (a) avoids memorization artifacts present in train loss surface
+    # (b) matches evaluation distribution used for retention measurement
+    # (c) smaller and deterministic (no augmentation)
     data = get_split_dataset(cfg)
     _, test_loader = data.get_task_a(batch_size=256)
 
@@ -251,6 +258,21 @@ def main():
     landscape_time = time.time() - t0
     print(f"  Landscape computed in {landscape_time:.1f}s")
     print(f"  Loss range: [{loss_grid.min():.4f}, {loss_grid.max():.4f}]")
+
+    # Validate landscape grid
+    if np.any(np.isnan(loss_grid)):
+        n_nan = int(np.sum(np.isnan(loss_grid)))
+        print(f"  WARNING: {n_nan} NaN values in loss grid ({n_nan}/{loss_grid.size} = {n_nan/loss_grid.size:.1%})")
+        print(f"  Replacing NaN with max finite loss for topology computation")
+        max_finite = float(np.nanmax(loss_grid))
+        loss_grid = np.nan_to_num(loss_grid, nan=max_finite)
+    if np.any(np.isinf(loss_grid)):
+        n_inf = int(np.sum(np.isinf(loss_grid)))
+        print(f"  WARNING: {n_inf} Inf values in loss grid — clamping for topology computation")
+        finite_max = float(np.max(loss_grid[np.isfinite(loss_grid)]))
+        loss_grid = np.clip(loss_grid, None, finite_max)
+    if loss_grid.std() < 1e-6:
+        print(f"  WARNING: Near-constant loss grid (std={loss_grid.std():.2e}) — topology may be degenerate")
 
     # Save landscape data
     topo_dir = os.path.join(output_dir, "topology")

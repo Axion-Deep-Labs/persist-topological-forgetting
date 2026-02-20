@@ -2,7 +2,40 @@
 
 ## EXP-01: Topological Persistence
 
-### Completed Runs (8/8 Architectures)
+### Current State (14/14 Architectures, CIFAR-100 Complete)
+
+All 14 architectures complete on CIFAR-100 (Phases 1, 2 ×5 slices, and 3). CIFAR-10 in progress (6/14 complete).
+
+| Architecture | Params | Task A Acc | ret@100 | H1 Pers | Type |
+|---|---|---|---|---|---|
+| ViT-Tiny | 0.8M | 52.7% | 22.5% | 0.18 | Transformer |
+| ShuffleNet-V2 | 1.3M | 76.8% | 17.3% | 0.69 | CNN |
+| ViT-Small | 3.0M | 62.2% | 9.6% | 0.32 | Transformer |
+| MobileNet-V3-S | 1.5M | 68.6% | 7.6% | 1.90 | CNN+SE |
+| EfficientNet-B0 | 4.1M | 76.6% | 7.1% | 2.12 | CNN+SE |
+| RegNet-Y-400MF | 4.3M | 72.2% | 2.0% | 0.02 | CNN+SE |
+| VGG-16-BN | 15.0M | 78.4% | 0.8% | 0.00 | CNN |
+| WRN-28-10 | 36.5M | 84.0% | 0.3% | 0.08 | CNN |
+| ResNet-18 | 11.2M | 82.0% | 0.2% | 0.00 | CNN |
+| ResNet-50 | 23.6M | 83.6% | 0.1% | 0.00 | CNN |
+| DenseNet-121 | 7.0M | 84.5% | 0.05% | 0.26 | CNN |
+| MLP-Mixer | 2.3M | 61.5% | 0.03% | 0.00 | MLP |
+| ConvNeXt-Tiny | 28.0M | 56.7% | 0.0%* | 0.11 | Modern CNN |
+| ResNet-18 Wide | 44.7M | 83.1% | 0.0% | 0.00 | CNN |
+
+*ConvNeXt shows non-monotonic recovery (0% → 3% → 0%).
+
+#### Phase 4 Correlation (n=14, CIFAR-100, current)
+- **H1 persistence:** ρ = 0.61, p = 0.021 (nominal), p_Bonf = 0.21 (not significant after correction)
+- **Parameter count:** ρ = −0.74, p = 0.002, p_Bonf = 0.02 (survives Bonferroni)
+- **Partial H1|params:** ρ = 0.35, p = 0.24 (non-significant)
+- **VIF(H1, params):** 1.45
+- **Rank regression R²:** 0.61 (only params significant)
+- LOO: 14/14 folds significant for H1; permutation p ≈ 0.02
+
+---
+
+### Historical Runs (25x25 grid, n=8 — SUPERSEDED by 50x50 re-runs)
 
 #### ResNet-18 (`exp01`)
 - **Date:** 2025-02-07
@@ -144,16 +177,53 @@ Initial correlation run with all 8 architectures using ret@10k:
   - Landscape tensors (`base_params`, `dir1`, `dir2`, GPU dataset) freed before baseline metrics start
   - Phase 2 wrapped in try/except: baseline failure saves topology results (the important part) regardless
 
+### Parameter Updates (2026-02-20)
+
+#### 7. Multi-slice Seed Fix
+- **Problem:** `set_seed(cfg["seed"])` always produced identical landscape_seed (478163327) for all multi-slice runs — all 5 "slices" were actually the same slice.
+- **Fix:** `set_seed(cfg["seed"] + run_offset)` where `run_offset = int(args.run_id)`. Now produces 5 genuinely unique seeds.
+- **Impact:** All existing multi-slice runs invalid — must re-run Phase 2 for all architectures.
+
+#### 8. Early Eval Steps
+- **Problem:** Old eval_steps `[100, 500, 1000, 5000, 10000, 25000]` missed the critical early-forgetting window. 9/14 CIFAR-10 architectures at 0% by step 100.
+- **Change:** All 28 configs updated to `[10, 25, 50, 100, 250, 500, 1000, 5000]`. Max steps reduced from 25000 to 5000.
+- **Impact:** All Phase 3 runs need re-run with new eval steps.
+
+#### 9. Bonferroni Correction + Kendall's Tau
+- **Problem:** 10 metrics × p<0.05 = 43% family-wise error rate without correction.
+- **Change:** Phase 4 now reports Bonferroni-corrected p-values (p × 10) and Kendall's tau alongside Spearman ρ.
+- **Impact:** H1 (p=0.021) does NOT survive Bonferroni (p_Bonf=0.21). Only params survives.
+
+#### 10. Landscape Validation
+- **Change:** Phase 2 now checks for NaN, Inf, and degenerate (near-zero variance) loss grids after computation. NaN replaced with max finite value; Inf clamped.
+
+#### 11. Task B Learning Check
+- **Change:** Phase 3 now warns if final Task B accuracy < 2× chance level, indicating retention metric may be unreliable.
+
+#### 12. Phase 2b Multi-slice Awareness
+- **Change:** Phase 2b now falls back to multi-slice files (`*_run*.pt/npz/json`) when default files don't exist, instead of erroring out.
+
+#### 13. Dashboard Updates
+- Clean & Rebuild button (one-click fix for invalid runs)
+- Re-run All P3 button
+- Multi-slice P2 progress indicator (e.g., "P2 3/5")
+- Removed multiplier mechanism (replaced by explicit PHASES entries for 5 slices)
+
 ### Next Steps
-- Re-run Phase 2 for all 8 architectures with 50x50 grid (adds baseline metrics for first 3)
-- Re-run Phase 4 correlation with ret@100 and complete baseline metric coverage
-- Evaluate whether 50x50 grid reveals H1 features for more architectures
-- If H1 correlates: run stability analysis (multiple random seeds per architecture)
+- **Complete CIFAR-10 runs** (7/14 remaining): resume via dashboard "Run Both Datasets"
+- **Re-run all Phase 2** with seed fix (Clean & Rebuild)
+- **Re-run all Phase 3** with early eval steps
+- Multi-seed analysis for 4 extreme archs: ViT-Small, ShuffleNet, ResNet-50, MLP-Mixer
+- Update paper with Bonferroni-corrected statistics, multi-slice error bars
+- CIFAR-10 cross-dataset replication analysis
 
 ### Known Issues
-- H1 = 0 for 7/8 architectures at 25x25 (likely discretization artifact; EfficientNet is the exception). 50x50 re-run should resolve.
-- Baseline metrics numerically unstable for large models: WRN-28-10 (negative Hessian), DenseNet-121/ResNet-18 Wide (barrier 1e23–1e34). Individual metric failures now handled gracefully.
-- EfficientNet barrier was `Infinity` in JSON — replaced with `null`, added `sanitize_for_json()` to dashboard
+- **Param count confound:** ρ(params,ret) = −0.74 dominates ρ(H1,ret) = 0.61; H1 non-significant after partialing out params (p = 0.24). Scale dominates topology at n=14.
+- **H1 does not survive Bonferroni:** p_Bonf = 0.21 with 10 tests. Nominally significant only.
+- **Floor effect in CIFAR-10:** 9/14 architectures at 0% retention by step 100 (old eval steps). New early checkpoints should help.
+- Barrier metric overflows for large models (clamped at 1e6)
+- Hessian trace goes negative for WRN-28-10 (saddle point)
+- MLP-Mixer challenges topology-retention hypothesis (high H0, zero retention)
 
 ---
 
@@ -171,6 +241,7 @@ Initial correlation run with all 8 architectures using ret@10k:
 - Sparse distance matrix (lower-star: edge value = max of endpoints)
 - Computed via Ripser (sparse mode)
 - H0 = connected components, H1 = loops
+- 5 independent random slices per architecture (mean ± std in Phase 4)
 
 ### Baseline Metrics (added 2025-02-10, hardened 2026-02-17)
 - Hessian trace: Hutchinson estimator, 30 Rademacher samples, batch capped at 64
@@ -179,8 +250,18 @@ Initial correlation run with all 8 architectures using ret@10k:
 - Loss barrier: Max loss increase along 10 filter-normalized random directions
 - Each metric runs independently (failure in one does not block others)
 
+### Statistical Analysis (upgraded 2026-02-20)
+- Spearman rank correlation + Kendall's tau (robust to ties)
+- Bonferroni correction: 10 metrics, adjusted α = 0.005
+- Partial correlation controlling for parameter count
+- Symmetric partial correlations + rank regression + VIF
+- Permutation test: 10,000 shuffles, two-tailed
+- Leave-one-out cross-validation: min/mean/max p across folds
+
 ### Forgetting Measurement
-- Train Task B (CIFAR-100 classes 50-99) for 25,000 steps
-- Evaluate Task A accuracy at steps: 0, 100, 500, 1000, 5000, 10000, 25000
+- Train Task B (CIFAR-100 classes 50-99) for 5,000 steps
+- Evaluate Task A accuracy at steps: 0, 10, 25, 50, 100, 250, 500, 1000, 5000
+- Early checkpoints (10, 25, 50) added 2026-02-20 to capture fast-forgetting architectures
 - Primary retention metric: ret@100 (switched from ret@10k for better variance)
 - Secondary metric: AURC (area under retention curve, uses full forgetting trajectory)
+- Note: max_steps reduced from 25,000 to 5,000 — all architectures reach terminal retention by step 1,000

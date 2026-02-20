@@ -88,6 +88,8 @@ PHASES = [
     {"id": "phase2", "name": "Landscape Topology", "module": "phase2_landscape_topology", "check_dir": "topology", "check_file": "topology_summary.json", "auto": True},
     {"id": "phase2_run1", "name": "Landscape Slice 2", "module": "phase2_landscape_topology", "check_dir": "topology", "check_file": "topology_summary_run1.json", "auto": True, "run_id": "1"},
     {"id": "phase2_run2", "name": "Landscape Slice 3", "module": "phase2_landscape_topology", "check_dir": "topology", "check_file": "topology_summary_run2.json", "auto": True, "run_id": "2"},
+    {"id": "phase2_run3", "name": "Landscape Slice 4", "module": "phase2_landscape_topology", "check_dir": "topology", "check_file": "topology_summary_run3.json", "auto": True, "run_id": "3"},
+    {"id": "phase2_run4", "name": "Landscape Slice 5", "module": "phase2_landscape_topology", "check_dir": "topology", "check_file": "topology_summary_run4.json", "auto": True, "run_id": "4"},
     {"id": "phase3", "name": "Sequential Forgetting", "module": "phase3_sequential_forgetting", "check_dir": "forgetting", "check_file": "forgetting_curve.json", "auto": True},
     {"id": "phase2b", "name": "Displacement Analysis", "module": "phase2b_displacement_analysis", "check_dir": "displacement", "check_file": "displacement_summary.json", "auto": False},
 ]
@@ -170,6 +172,10 @@ def archive_phase_results(exp_id, phase_id):
     backup_map = {
         "phase1": [("checkpoints", "task_a_best.pt")],
         "phase2": [("topology", "topology_summary.json")],
+        "phase2_run1": [("topology", "topology_summary_run1.json")],
+        "phase2_run2": [("topology", "topology_summary_run2.json")],
+        "phase2_run3": [("topology", "topology_summary_run3.json")],
+        "phase2_run4": [("topology", "topology_summary_run4.json")],
         "phase3": [("forgetting", "forgetting_curve.json")],
     }
     for subdir, filename in backup_map.get(phase_id, []):
@@ -235,14 +241,13 @@ def run_phase(exp, phase, run_id=None):
         return False
 
 
-def runner_worker(queue, force=None, multiplier=1):
+def runner_worker(queue, force=None):
     """Background worker that processes the experiment queue.
 
     Args:
         queue: list of (exp_id, phase_id) tuples to run.
         force: optional set of (exp_id, phase_id) tuples that should skip
                the completion check and archive existing results first.
-        multiplier: for Phase 2, run this many times with different --run-id values.
     """
     if force is None:
         force = set()
@@ -277,32 +282,12 @@ def runner_worker(queue, force=None, multiplier=1):
                     )
                 continue
 
-        # Multi-slice support for Phase 2
-        if phase_id == "phase2" and multiplier > 1:
-            all_ok = True
-            for run_id in range(1, multiplier + 1):
-                with runner_lock:
-                    runner_state["logs"].append(
-                        f"[{datetime.now().strftime('%H:%M:%S')}] {exp['name']} — {phase['name']} slice {run_id}/{multiplier}"
-                    )
-                success = run_phase(exp, phase, run_id=run_id)
-                if not success:
-                    all_ok = False
-                    break
-            if not all_ok:
-                with runner_lock:
-                    runner_state["logs"].append(
-                        f"[{datetime.now().strftime('%H:%M:%S')}] Stopping queue due to failure."
-                    )
-                break
-        else:
-            success = run_phase(exp, phase)
-            if not success:
-                with runner_lock:
-                    runner_state["logs"].append(
-                        f"[{datetime.now().strftime('%H:%M:%S')}] Stopping queue due to failure."
-                    )
-                break
+        success = run_phase(exp, phase)
+        if not success:
+            with runner_lock:
+                runner_state["logs"].append(
+                    f"[{datetime.now().strftime('%H:%M:%S')}] Stopping queue due to failure."
+                )
 
     with runner_lock:
         runner_state["running"] = False
@@ -435,7 +420,10 @@ def api_run():
 
 @app.route("/api/rerun", methods=["POST"])
 def api_rerun():
-    """Re-run a phase for one or all experiments, archiving existing results."""
+    """Re-run a phase for one or all experiments, archiving existing results.
+
+    For phase2, automatically expands to all slice phases (phase2, phase2_run1-4).
+    """
     with runner_lock:
         if runner_state["running"]:
             return jsonify({"error": "Already running"}), 400
@@ -444,8 +432,6 @@ def api_rerun():
     exp_id = data.get("experiment")  # optional — if omitted, re-run for all
     phase_id = data.get("phase")
 
-    multiplier = data.get("multiplier", 1)
-
     if not phase_id:
         return jsonify({"error": "phase is required"}), 400
 
@@ -453,32 +439,104 @@ def api_rerun():
     if not any(p["id"] == phase_id for p in PHASES):
         return jsonify({"error": f"Unknown phase: {phase_id}"}), 400
 
+    # For phase2, expand to include all slice phases
+    phase_ids = [phase_id]
+    if phase_id == "phase2":
+        phase_ids = [p["id"] for p in PHASES if p["id"].startswith("phase2") and p["id"] != "phase2b"]
+
+    experiments = ([next(e for e in EXPERIMENTS_CIFAR100 + EXPERIMENTS_CIFAR10 if e["id"] == exp_id)]
+                   if exp_id else list(get_active_experiments()))
+
     queue = []
     force = set()
+    for exp in experiments:
+        for pid in phase_ids:
+            queue.append((exp["id"], pid))
+            force.add((exp["id"], pid))
 
-    if exp_id:
-        # Single experiment re-run
-        if not any(e["id"] == exp_id for e in EXPERIMENTS_CIFAR100 + EXPERIMENTS_CIFAR10):
-            return jsonify({"error": f"Unknown experiment: {exp_id}"}), 400
-        queue.append((exp_id, phase_id))
-        force.add((exp_id, phase_id))
-    else:
-        # Re-run phase across all experiments
-        for exp in get_active_experiments():
-            queue.append((exp["id"], phase_id))
-            force.add((exp["id"], phase_id))
-
-    mult_str = f" ({multiplier}x slices)" if multiplier > 1 else ""
     with runner_lock:
         runner_state["queue"] = queue
         runner_state["logs"] = [
-            f"[{datetime.now().strftime('%H:%M:%S')}] Queued {len(queue)} re-run task(s) for {phase_id}{mult_str}."
+            f"[{datetime.now().strftime('%H:%M:%S')}] Queued {len(queue)} re-run task(s) for {'/'.join(phase_ids)}."
         ]
 
-    thread = threading.Thread(target=runner_worker, args=(queue,), kwargs={"force": force, "multiplier": multiplier}, daemon=True)
+    thread = threading.Thread(target=runner_worker, args=(queue,), kwargs={"force": force}, daemon=True)
     thread.start()
 
-    return jsonify({"message": f"Re-running {len(queue)} task(s){mult_str}", "queue": queue})
+    return jsonify({"message": f"Re-running {len(queue)} task(s)", "queue": queue})
+
+
+@app.route("/api/clean_rebuild", methods=["POST"])
+def api_clean_rebuild():
+    """Clean invalid Phase 2 multi-slice data (seed bug) and Phase 3 forgetting
+    data (eval_steps changed), then queue all remaining phases for both datasets.
+
+    This is the one-click fix for the seed bug + early eval steps changes.
+    """
+    with runner_lock:
+        if runner_state["running"]:
+            return jsonify({"error": "Cannot clean while running"}), 400
+
+    cleaned = {"phase2_slices": 0, "phase3_forgetting": 0}
+
+    for exp in EXPERIMENTS_CIFAR100 + EXPERIMENTS_CIFAR10:
+        result_dir = RESULTS_DIR / exp["id"]
+        topo_dir = result_dir / "topology"
+        forget_dir = result_dir / "forgetting"
+
+        # Delete invalid multi-slice Phase 2 files (run1/run2 had same seed as default)
+        for run_id in ["1", "2"]:
+            for fname in [
+                f"topology_summary_run{run_id}.json",
+                f"loss_landscape_run{run_id}.npz",
+                f"landscape_directions_run{run_id}.pt",
+                f"persistence_diagram_H0_run{run_id}.npy",
+                f"persistence_diagram_H1_run{run_id}.npy",
+            ]:
+                f = topo_dir / fname
+                if f.exists():
+                    f.unlink()
+                    cleaned["phase2_slices"] += 1
+
+        # Archive and delete Phase 3 forgetting files (eval_steps changed)
+        fc = forget_dir / "forgetting_curve.json"
+        if fc.exists():
+            bak = fc.with_suffix(".json.bak")
+            shutil.copy2(str(fc), str(bak))
+            fc.unlink()
+            cleaned["phase3_forgetting"] += 1
+
+    # Queue all remaining phases for both datasets
+    queue = []
+    for exp in EXPERIMENTS_CIFAR100 + EXPERIMENTS_CIFAR10:
+        status = get_experiment_status(exp["id"])
+        for phase in PHASES:
+            if not phase.get("auto", True):
+                continue
+            if status[phase["id"]] != "complete":
+                queue.append((exp["id"], phase["id"]))
+
+    if not queue:
+        return jsonify({
+            "message": f"Cleaned {cleaned['phase2_slices']} slice files, archived {cleaned['phase3_forgetting']} forgetting curves. Nothing to re-run.",
+            **cleaned,
+        })
+
+    with runner_lock:
+        runner_state["queue"] = queue
+        runner_state["logs"] = [
+            f"[{datetime.now().strftime('%H:%M:%S')}] Cleaned {cleaned['phase2_slices']} invalid slice files, archived {cleaned['phase3_forgetting']} forgetting curves.",
+            f"[{datetime.now().strftime('%H:%M:%S')}] Queued {len(queue)} tasks for rebuild.",
+        ]
+
+    thread = threading.Thread(target=runner_worker, args=(queue,), daemon=True)
+    thread.start()
+
+    return jsonify({
+        "message": f"Cleaned and queued {len(queue)} tasks",
+        "cleaned": cleaned,
+        "queue_size": len(queue),
+    })
 
 
 @app.route("/api/stop", methods=["POST"])
@@ -541,7 +599,12 @@ def api_resume():
 @app.route("/api/correlation")
 def api_correlation():
     """Get correlation results if available."""
-    path = RESULTS_DIR / "correlation_results.json"
+    # Try dataset-specific file first (from fixed Phase 4)
+    ds_tag = "_cifar100" if active_dataset == "cifar100" else "_cifar10"
+    path = RESULTS_DIR / f"correlation_results{ds_tag}.json"
+    if not path.exists():
+        # Fall back to legacy non-tagged file
+        path = RESULTS_DIR / "correlation_results.json"
     if path.exists():
         with open(path) as f:
             return jsonify(json.load(f))

@@ -103,9 +103,17 @@ def main():
     # ── Load landscape directions from Phase 2 ──
     directions_path = os.path.join(topo_dir, "landscape_directions.pt")
     if not os.path.exists(directions_path):
-        print(f"ERROR: {directions_path} not found.")
-        print("  Phase 2 must be re-run with the updated script that saves directions.")
-        sys.exit(1)
+        # Check for multi-slice files as fallback
+        import glob as _glob
+        multi_slice_files = sorted(_glob.glob(os.path.join(topo_dir, "landscape_directions_run*.pt")))
+        if multi_slice_files:
+            print(f"  NOTE: Default landscape_directions.pt not found, but {len(multi_slice_files)} multi-slice files exist.")
+            print(f"  Using first slice: {os.path.basename(multi_slice_files[0])}")
+            directions_path = multi_slice_files[0]
+        else:
+            print(f"ERROR: {directions_path} not found.")
+            print("  Phase 2 must be re-run with the updated script that saves directions.")
+            sys.exit(1)
 
     print("Loading landscape directions from Phase 2...")
     directions_data = torch.load(directions_path, map_location="cpu", weights_only=False)
@@ -116,6 +124,13 @@ def main():
 
     # ── Load loss landscape for overlay ──
     landscape_path = os.path.join(topo_dir, "loss_landscape.npz")
+    if not os.path.exists(landscape_path):
+        import glob as _glob2
+        multi_landscape = sorted(_glob2.glob(os.path.join(topo_dir, "loss_landscape_run*.npz")))
+        if multi_landscape:
+            print(f"  NOTE: Default loss_landscape.npz not found, using {os.path.basename(multi_landscape[0])}")
+            landscape_path = multi_landscape[0]
+
     if os.path.exists(landscape_path):
         landscape_data = np.load(landscape_path)
         loss_grid = landscape_data["loss_grid"]
@@ -126,10 +141,17 @@ def main():
         print(f"  Beta range:  [{betas[0]:.2f}, {betas[-1]:.2f}]")
     else:
         loss_grid = None
-        print("  WARNING: loss_landscape.npz not found, skipping overlay")
+        print("  WARNING: No loss landscape files found, skipping overlay")
 
     # ── Load topology summary for H0/H1 context ──
     topo_summary_path = os.path.join(topo_dir, "topology_summary.json")
+    if not os.path.exists(topo_summary_path):
+        import glob as _glob3
+        multi_topo = sorted(_glob3.glob(os.path.join(topo_dir, "topology_summary_run*.json")))
+        if multi_topo:
+            print(f"  NOTE: Default topology_summary.json not found, using {os.path.basename(multi_topo[0])}")
+            topo_summary_path = multi_topo[0]
+
     h0_persistence = None
     h1_persistence = None
     if os.path.exists(topo_summary_path):

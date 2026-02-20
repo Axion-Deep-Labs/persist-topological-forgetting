@@ -4,18 +4,20 @@
 
 Does the topological structure of a neural network's loss landscape correlate with resistance to catastrophic forgetting?
 
-We compute persistent homology on 2D cross-sections of loss landscapes across 14 architectures trained on Split-CIFAR-100, then measure how topological features relate to knowledge retention under naive sequential training.
+We compute persistent homology on 2D cross-sections of loss landscapes across 14 architectures trained on Split-CIFAR-100 (and Split-CIFAR-10), then measure how topological features relate to knowledge retention under naive sequential training.
 
-## Key Findings (n=14)
+## Key Findings (n=14, CIFAR-100)
 
-| Metric | vs ret@100 | vs AURC |
-|--------|-----------|---------|
-| **H1 persistence** (loops) | **ρ = 0.61** (p = 0.021) | **ρ = 0.65** (p = 0.012) |
-| H0 persistence (components) | ρ = 0.32 (p = 0.263) | **ρ = 0.71** (p = 0.005) |
-| Fisher trace | ρ = −0.50 (p = 0.072) | **ρ = −0.75** (p = 0.002) |
-| **Parameter count** | **ρ = −0.74** (p = 0.002) | ρ = −0.51 (p = 0.064) |
+| Metric | ρ (ret@100) | p | p_Bonf | τ (Kendall) |
+|--------|------------|---|--------|-------------|
+| **H1 persistence** (loops) | **0.61** | 0.021 | 0.210 | 0.47 |
+| H0 persistence (components) | 0.32 | 0.263 | 1.000 | 0.24 |
+| Fisher trace | −0.50 | 0.072 | 0.720 | −0.38 |
+| **Parameter count** | **−0.74** | 0.002 | **0.020** | −0.60 |
 
-**Important caveat:** Parameter count is the strongest single correlate of retention. After partialing out model size, H1 drops to non-significance (ρ = 0.35, p = 0.24). Multi-slice stability analysis is in progress to determine whether topology carries independent signal beyond capacity.
+**Statistical rigor:** 10 metrics tested; Bonferroni-adjusted α = 0.005. Only parameter count survives multiple-comparison correction. H1 is nominally significant (p = 0.021) but does not survive Bonferroni (p_Bonf = 0.21). Kendall's tau, which is more robust to ties at small n, confirms the ranking.
+
+**Important caveat:** Parameter count is the strongest single correlate of retention. After partialing out model size, H1 drops to non-significance (partial ρ = 0.35, p = 0.24, VIF = 1.45). Multi-slice stability analysis and CIFAR-10 replication are in progress to determine whether topology carries independent signal beyond capacity.
 
 All correlations confirmed via leave-one-out cross-validation (14/14 folds significant) and permutation testing (10,000 shuffles).
 
@@ -43,17 +45,22 @@ All correlations confirmed via leave-one-out cross-validation (14/14 folds signi
 ## Experimental Pipeline
 
 ```
-Phase 1: Train on Task A (classes 0-49)  →  converged checkpoint
-Phase 2: Sample 50×50 loss landscape     →  persistent homology (H0, H1)
-       + Baseline metrics                →  Hessian, Fisher, sharpness, barrier
-Phase 3: Train on Task B (classes 50-99) →  forgetting curve at 6 intervals
-Phase 4: Spearman correlation            →  LOO, permutation test, partial correlations
+Phase 1:   Train on Task A (classes 0-49)  →  converged checkpoint
+Phase 2:   Sample 50×50 loss landscape     →  persistent homology (H0, H1)
+         + Baseline metrics                →  Hessian, Fisher, sharpness, barrier
+         + Landscape validation            →  NaN/Inf/degeneracy checks
+Phase 2b:  Displacement analysis           →  trajectory through landscape after forgetting
+Phase 3:   Train on Task B (classes 50-99) →  forgetting curve at 8 intervals
+         + Task B learning validation      →  warn if Task B fails to converge
+Phase 4:   Spearman + Kendall correlation  →  Bonferroni, LOO, permutation, partials
 ```
 
 ### Multi-slice & Multi-seed
 
+Each architecture gets 5 random 2D landscape slices for stability analysis:
+
 ```bash
-# Multiple random 2D cross-sections per architecture
+# Multiple random 2D cross-sections per architecture (run-id 1-4, plus default)
 python -m experiments.exp01_topological_persistence.phase2_landscape_topology \
     --config configs/exp01.yaml --run-id 1
 
@@ -106,16 +113,27 @@ python -m experiments.exp01_topological_persistence.phase4_correlation \
 
 ## Topology Construction
 
-1. **Landscape sampling:** Generate two filter-normalized random directions (Li et al., 2018). Evaluate loss on a 50×50 grid over [-1, 1]².
+1. **Landscape sampling:** Generate two filter-normalized random directions (Li et al., 2018). Evaluate loss on a 50×50 grid over [-1, 1]². Validated for NaN/Inf/degeneracy.
 2. **Weighted graph:** 8-connected grid graph with lower-star edge weights: w(u,v) = max(f(u), f(v)).
 3. **Persistent homology:** Sparse distance matrix → Ripser (Vietoris-Rips complex) → H0 and H1 persistence diagrams.
+4. **Multi-slice stability:** 5 independent random slices per architecture; Phase 4 aggregates (mean ± std).
+
+## Statistical Analysis
+
+- **Spearman rank correlation** + **Kendall's tau** (robust to ties at small n)
+- **Bonferroni correction** for multiple testing (10 metrics, adjusted α = 0.005)
+- **Partial correlation** controlling for parameter count (confound analysis)
+- **Symmetric partials** + rank regression to disentangle H1 vs params
+- **Permutation test** (10,000 shuffles) for non-parametric significance
+- **Leave-one-out** cross-validation (min/mean/max p-values across folds)
 
 ## Hardware
 
 - GPU: NVIDIA GeForce RTX 4090 (24 GB VRAM)
+- CPU: AMD Ryzen 9 9900X
 - RAM: 64 GB DDR5
 - ~20 min per architecture for full pipeline (Phase 1-3)
-- ~14 hours for all 14 architectures × 2 datasets × 3 slices
+- ~20 hours for all 14 architectures × 2 datasets × 5 slices
 
 ## References
 
