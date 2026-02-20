@@ -4,7 +4,7 @@
 
 Catastrophic forgetting remains one of the central obstacles in continual learning. Most mitigation methods focus on regularization or replay, treating the symptom rather than examining the structure. We ask a different question: is a model's susceptibility to forgetting encoded in the geometry of its loss landscape before any sequential training occurs?
 
-Standard curvature metrics (Hessian trace, sharpness) measure how steep the basin is. Topology measures something different: the *connectivity structure* of the loss surface — whether the basin is a smooth bowl, a fragmented archipelago, or a landscape threaded with ridges that form loops. We compute persistent homology on 2D cross-sections of loss landscapes across 14 architectures, then correlate topological features with knowledge retention under naive sequential training.
+Standard curvature metrics (Hessian trace, sharpness) measure how steep the basin is. Topology measures something orthogonal: the *connectivity structure* of the loss surface — whether the basin is a smooth bowl, a fragmented archipelago, or a landscape threaded with ridges that form loops. We compute persistent homology on 2D cross-sections of loss landscapes across 14 architectures, then correlate topological features with knowledge retention under naive sequential training.
 
 ```
   Smooth basin (H1 = 0)          Basin with loop (H1 > 0)
@@ -26,15 +26,15 @@ Does topological structure of the loss landscape predict forgetting resistance? 
 
 ### The tension: topology correlates, but scale dominates
 
-Across 14 architectures on CIFAR-100, H1 persistence (loop structure in the loss landscape) correlates with knowledge retention at ρ = 0.61 (p = 0.021), explaining 37% of rank variance. But parameter count correlates more strongly (ρ = −0.74, p = 0.002), and after partialing out model size, H1 drops to non-significance (partial ρ = 0.35, p = 0.24).
+Across 14 architectures on CIFAR-100, H1 persistence (loop structure in the loss landscape) correlates with knowledge retention at ρ = 0.61 (p = 0.021, explaining 37% of rank variance). But parameter count correlates more strongly (ρ = −0.74, p = 0.002), and after partialing out model size, H1 drops to non-significance (partial ρ = 0.35, p = 0.24).
 
 Smaller models retain more. Smaller models also tend to have more topological complexity. The question is whether topology carries independent signal or merely tracks scale.
 
 ### The most interesting result: within-class signal
 
-When we restrict analysis to CNNs only (n=11), removing the confound of architecture-family differences, H1 re-emerges as a significant predictor of retention. This suggests that *within an architecture family*, where parameter count varies less dramatically, topological structure does carry information about forgetting resistance that scale alone does not explain.
+When we restrict analysis to CNNs only (n=11), removing the confound of architecture-family differences, H1 re-emerges as a significant predictor of retention (ρ = 0.66, p = 0.026). This suggests that *within an architecture family*, where parameter count varies less dramatically, topological structure does carry information about forgetting resistance that scale alone does not explain.
 
-This is the core scientific tension of the project, and the finding that will determine whether PERSIST yields a correlational curiosity or a geometric insight.
+This is the core scientific tension of the project. If topology is merely a geometric manifestation of scale, then width-controlled experiments (e.g., a WRN width ladder at fixed depth) should eliminate the H1 signal. If not, topology carries independent structural information. That experiment will determine whether PERSIST yields a correlational curiosity or a geometric insight.
 
 ### Where we stand honestly
 
@@ -43,8 +43,8 @@ This is the core scientific tension of the project, and the finding that will de
 | H1 correlates with retention (ρ = 0.61) | Nominally significant, does not survive Bonferroni |
 | Parameter count dominates (ρ = −0.74) | Survives Bonferroni (p_Bonf = 0.02) |
 | H1 independent of scale? | Not yet — partial ρ = 0.35, p = 0.24 |
-| Within-CNN H1 signal | Significant, needs width-controlled validation |
-| CIFAR-10 replication | In progress, limited by floor effect |
+| Within-CNN H1 signal (ρ = 0.66) | Significant, needs width-controlled validation |
+| CIFAR-10 replication | H1 non-significant (ρ ~ 0.13, p ~ 0.65); floor effect limits power |
 
 ## Caveats
 
@@ -55,6 +55,8 @@ This is the core scientific tension of the project, and the finding that will de
 - **Sample size:** n = 14 architectures. Small-sample rank correlation should be interpreted with caution.
 
 ## Architectures (n=14, CIFAR-100)
+
+Sorted by retention (descending).
 
 | Architecture | Params | Task A Acc | ret@100 | H1 Pers | Type |
 |---|---|---|---|---|---|
@@ -95,7 +97,7 @@ Phase 4:   Spearman + Kendall correlation  ->  Bonferroni, LOO, permutation, par
 1. **Landscape sampling:** Two filter-normalized random directions (Li et al., 2018). Loss evaluated on a 50x50 grid over [-1, 1]^2. Grid validated for NaN/Inf/degeneracy.
 2. **Weighted graph:** 8-connected grid with lower-star edge weights: w(u,v) = max(f(u), f(v)).
 3. **Persistent homology:** Sparse distance matrix -> Ripser -> H0 (components) and H1 (loops) persistence diagrams.
-4. **Multi-slice:** 5 independent random 2D slices per architecture; Phase 4 aggregates (mean +/- std).
+4. **Multi-slice:** Infrastructure supports 5 independent random 2D slices per architecture (currently re-running after seed fix); Phase 4 aggregates (mean +/- std).
 
 ### Statistical methods
 
@@ -106,7 +108,7 @@ Phase 4:   Spearman + Kendall correlation  ->  Bonferroni, LOO, permutation, par
 - **Permutation test** (10,000 shuffles) for non-parametric significance
 - **Leave-one-out** cross-validation (min/mean/max p-values across folds)
 
-### Full correlation table
+**Full correlation table (CIFAR-100, n=14):**
 
 | Metric | rho (ret@100) | p | p_Bonf | tau (Kendall) |
 |--------|------------|---|--------|-------------|
@@ -115,7 +117,7 @@ Phase 4:   Spearman + Kendall correlation  ->  Bonferroni, LOO, permutation, par
 | Fisher trace | -0.50 | 0.072 | 0.720 | -0.38 |
 | **Parameter count** | **-0.74** | 0.002 | **0.020** | -0.60 |
 
-LOO cross-validation: 14/14 folds significant for H1. Permutation p ~ 0.02.
+LOO: 14/14 folds significant for H1. Permutation p ~ 0.02.
 
 ## Reproducibility
 
