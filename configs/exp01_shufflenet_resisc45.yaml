@@ -1,14 +1,14 @@
-# EXP-01: Topological Persistence — RegNet-Y-400MF on CIFAR-10
+# EXP-01: Topological Persistence — ShuffleNet-V2 on RESISC-45 (cross-domain)
 experiment: exp01_topological_persistence
 
-dataset: cifar10
-task_a_classes: [0, 5]
-task_b_classes: [5, 10]
+dataset: resisc45
+task_a_classes: [0, 23]
+task_b_classes: [23, 45]
 data_dir: ./data
 
-architecture: regnet_y400mf
-num_classes_a: 5
-num_classes_b: 5
+architecture: shufflenet_v2
+num_classes_a: 23
+num_classes_b: 22
 
 training:
   epochs: 100
@@ -35,6 +35,6 @@ forgetting:
   eval_steps: [10, 25, 50, 100, 250, 500, 1000, 5000]
   save_checkpoints: true
 
-output_dir: ./results/exp01_regnet_cifar10
+output_dir: ./results/exp01_shufflenet_resisc45
 seed: 42
 device: cuda

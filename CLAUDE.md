@@ -9,13 +9,13 @@ Experimental codebase for three priority research experiments:
 ## Structure
 ```
 experiments/
-  shared/              — Datasets, models, baseline metrics, utilities
+  shared/              — Datasets (CIFAR-100, CUB-200, RESISC-45), models (19 archs), baseline metrics, utilities
   exp01_.../           — Phase 1-4 scripts for topological persistence
   exp02_.../           — Phi survey (planned)
   exp03_.../           — Bekenstein analog (planned)
-configs/               — YAML configs per experiment (one per architecture)
+configs/               — 57 YAML configs (19 architectures × 3 datasets)
 results/               — Output (gitignored, large files)
-dashboard/             — Flask web dashboard (localhost:5050)
+dashboard/             — Flask web dashboard (localhost:5050), 3-dataset selector
 ```
 
 ## Running Experiments
@@ -33,15 +33,14 @@ python -m experiments.exp01_topological_persistence.phase1_train_task_a --config
 ```
 
 ## EXP-01 Current State (as of 2026-02-20)
-- All 14 architectures complete on CIFAR-100 (Phases 1, 2 ×5 slices, 3)
-- CIFAR-10: 6/14 complete, 7 remaining (resume via dashboard)
-- Phase 4 correlation (n=14, CIFAR-100): H1 ρ=0.61 (p=0.021, p_Bonf=0.21), params ρ=−0.74 (p=0.002, p_Bonf=0.02)
-- Bonferroni correction + Kendall's tau added to Phase 4
-- Landscape validation (NaN/Inf checks) added to Phase 2
-- Task B learning validation added to Phase 3
-- Phase 2b multi-slice fallback support added
-- Dashboard: 5 landscape slices, Clean & Rebuild, Re-run All P3
-- **Note:** Phase 2 seed bug fixed — existing multi-slice runs need re-run
+- **3 datasets:** CIFAR-100, CUB-200-2011 (fine-grained birds), NWPU-RESISC45 (satellite scenes)
+- **19 architectures:** 14 original + WRN-28-k width ladder (k=1,2,4,6,8,10)
+- **57 configs total** (19 per dataset)
+- CIFAR-100: 14 original architectures complete (Phases 1-3), 5 WRN width ladder pending
+- CUB-200 and RESISC-45: all 19 architectures pending (new datasets)
+- CIFAR-10 removed (floor effect, no statistical power)
+- Phase 4 includes WRN Width Ladder Analysis (within-ladder Spearman + partial H1|params)
+- Dashboard: 3-dataset selector, "Run All Datasets" button
 - See EXPERIMENT_LOG.md for full run history and results
 
 ## Rules

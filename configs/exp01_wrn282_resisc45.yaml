@@ -1,24 +1,24 @@
-# EXP-01: Topological Persistence — MLP-Mixer on CIFAR-10
+# EXP-01: Topological Persistence — WRN-28-2 on RESISC-45 (cross-domain)
 experiment: exp01_topological_persistence
 
-dataset: cifar10
-task_a_classes: [0, 5]
-task_b_classes: [5, 10]
+dataset: resisc45
+task_a_classes: [0, 23]
+task_b_classes: [23, 45]
 data_dir: ./data
 
-architecture: mlp_mixer
-num_classes_a: 5
-num_classes_b: 5
+architecture: wrn282
+num_classes_a: 23
+num_classes_b: 22
 
 training:
   epochs: 100
   batch_size: 128
   optimizer: sgd
-  lr: 0.01
+  lr: 0.1
   momentum: 0.9
   weight_decay: 5.0e-4
   lr_schedule: cosine
-  warmup_epochs: 10
+  warmup_epochs: 5
 
 landscape:
   num_directions: 2
@@ -35,6 +35,6 @@ forgetting:
   eval_steps: [10, 25, 50, 100, 250, 500, 1000, 5000]
   save_checkpoints: true
 
-output_dir: ./results/exp01_mlpmixer_cifar10
+output_dir: ./results/exp01_wrn282_resisc45
 seed: 42
 device: cuda

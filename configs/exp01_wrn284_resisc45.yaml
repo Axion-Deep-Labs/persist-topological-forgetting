@@ -1,0 +1,40 @@
+# EXP-01: Topological Persistence — WRN-28-4 on RESISC-45 (cross-domain)
+experiment: exp01_topological_persistence
+
+dataset: resisc45
+task_a_classes: [0, 23]
+task_b_classes: [23, 45]
+data_dir: ./data
+
+architecture: wrn284
+num_classes_a: 23
+num_classes_b: 22
+
+training:
+  epochs: 100
+  batch_size: 128
+  optimizer: sgd
+  lr: 0.1
+  momentum: 0.9
+  weight_decay: 5.0e-4
+  lr_schedule: cosine
+  warmup_epochs: 5
+
+landscape:
+  num_directions: 2
+  steps_per_direction: 50
+  range: [-1.0, 1.0]
+  filter_normalize: true
+
+topology:
+  max_dimension: 1
+  max_edge_length: 2.0
+  num_landscape_samples: 2500
+
+forgetting:
+  eval_steps: [10, 25, 50, 100, 250, 500, 1000, 5000]
+  save_checkpoints: true
+
+output_dir: ./results/exp01_wrn284_resisc45
+seed: 42
+device: cuda

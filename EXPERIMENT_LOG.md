@@ -209,18 +209,42 @@ Initial correlation run with all 8 architectures using ret@10k:
 - Multi-slice P2 progress indicator (e.g., "P2 3/5")
 - Removed multiplier mechanism (replaced by explicit PHASES entries for 5 slices)
 
+### Parameter Updates (2026-02-20, session 2)
+
+#### 14. CIFAR-10 Removed
+- **Rationale:** Floor effect. Retention collapses to near-zero for all architectures, providing no statistical variance. Useless for correlation analysis.
+- **Change:** Removed all 14 CIFAR-10 configs, SplitCIFAR10 dataset class, and CIFAR-10 dashboard support.
+
+#### 15. CUB-200-2011 Added
+- **Rationale:** Gold standard fine-grained continual learning benchmark. 200 bird species, official train/test split, well-cited in CL literature.
+- **Change:** Added SplitCUB200 dataset class with auto-download from Caltech (~1.1GB). 100/100 class split. All images resized to 32x32. ImageNet normalization. 19 configs created.
+
+#### 16. NWPU-RESISC45 Added
+- **Rationale:** Cross-domain validation. 45 satellite scene classes. Tests whether findings generalize beyond natural images.
+- **Change:** Added SplitRESISC45 dataset class using torchgeo for download, ImageFolder for loading. Stratified 80/20 train/test split (no official split). 23/22 class split. All images resized to 32x32. 19 configs created. Requires `pip install torchgeo`.
+
+#### 17. WRN-28-k Width Ladder (k=1,2,4,6,8)
+- **Rationale:** The decisive experiment to disentangle topology from scale. Same architecture, same depth, varying only width. If H1 correlates with retention within this 6-point ladder, topology carries independent signal. If not, scale was driving it.
+- **Change:** Added 5 new model factories (get_wrn281 through get_wrn288) reusing existing WideResNet class. WRN-28-10 already existed. 5 new CIFAR-100 configs + included in all CUB-200/RESISC-45 configs.
+- **Param range:** ~0.4M (k=1) to ~36.5M (k=10). Six data points along a single controlled dimension.
+
+#### 18. Dashboard 3-Dataset Support
+- **Change:** Dashboard overhauled for 3-dataset architecture. 3-button selector (CIFAR-100, CUB-200, RESISC-45). 19 experiments per dataset. "Run All Datasets" button queues all incomplete across all 3. Per-dataset correlation results.
+
+#### 19. Phase 4 WRN Ladder Analysis
+- **Change:** Phase 4 now includes dedicated WRN Width Ladder Analysis section. Computes within-ladder Spearman correlation (H1 vs retention, params vs retention) and partial H1|params. Outputs a verdict: whether H1 carries independent signal beyond scale within the controlled ladder.
+
 ### Next Steps
-- **Complete CIFAR-10 runs** (7/14 remaining): resume via dashboard "Run Both Datasets"
-- **Re-run all Phase 2** with seed fix (Clean & Rebuild)
-- **Re-run all Phase 3** with early eval steps
-- Multi-seed analysis for 4 extreme archs: ViT-Small, ShuffleNet, ResNet-50, MLP-Mixer
-- Update paper with Bonferroni-corrected statistics, multi-slice error bars
-- CIFAR-10 cross-dataset replication analysis
+- **Run WRN width ladder on CIFAR-100** (5 new experiments, ~5 hrs) -- the decisive test, FIRST
+- **Run all 19 architectures on CUB-200** (~16 hrs)
+- **Run all 19 architectures on RESISC-45** (~16 hrs)
+- Multi-seed analysis for extreme architectures
+- Update paper with 3-dataset results, width ladder verdict, multi-slice error bars
+- Publish to arXiv
 
 ### Known Issues
-- **Param count confound:** ρ(params,ret) = −0.74 dominates ρ(H1,ret) = 0.61; H1 non-significant after partialing out params (p = 0.24). Scale dominates topology at n=14.
+- **Param count confound:** rho(params,ret) = -0.74 dominates rho(H1,ret) = 0.61; H1 non-significant after partialing out params (p = 0.24). WRN width ladder designed to resolve this.
 - **H1 does not survive Bonferroni:** p_Bonf = 0.21 with 10 tests. Nominally significant only.
-- **Floor effect in CIFAR-10:** 9/14 architectures at 0% retention by step 100 (old eval steps). New early checkpoints should help.
 - Barrier metric overflows for large models (clamped at 1e6)
 - Hessian trace goes negative for WRN-28-10 (saddle point)
 - MLP-Mixer challenges topology-retention hypothesis (high H0, zero retention)

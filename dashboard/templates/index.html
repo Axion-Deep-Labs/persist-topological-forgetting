@@ -267,7 +267,7 @@
                 <span class="status-dot idle"></span><span>Idle</span>
             </span>
             <button id="btnRunAll" class="btn btn-primary" onclick="runAll()">Run All Remaining</button>
-            <button id="btnRunBoth" class="btn btn-primary" onclick="runAllBoth()" style="background:#059669;" title="Run remaining for CIFAR-100 + CIFAR-10">Run Both Datasets</button>
+            <button id="btnRunAllDatasets" class="btn btn-primary" onclick="runAllDatasets()" style="background:#059669;" title="Run remaining for all 3 datasets">Run All Datasets</button>
             <button id="btnPause" class="btn btn-warning" onclick="pauseRun()" style="display:none;">Pause</button>
             <button id="btnStop" class="btn btn-danger" onclick="stopRun()" style="display:none;">Stop</button>
             <button class="btn btn-secondary" onclick="rerunAllPhase('phase2')">Re-run All P2</button>
@@ -318,7 +318,8 @@
             <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
                 <div class="section-title" style="margin-bottom:0;">Architectures</div>
                 <button id="btnCifar100" class="btn btn-sm btn-primary" onclick="switchDataset('cifar100')">CIFAR-100</button>
-                <button id="btnCifar10" class="btn btn-sm btn-secondary" onclick="switchDataset('cifar10')">CIFAR-10</button>
+                <button id="btnCub200" class="btn btn-sm btn-secondary" onclick="switchDataset('cub200')">CUB-200</button>
+                <button id="btnResisc45" class="btn btn-sm btn-secondary" onclick="switchDataset('resisc45')">RESISC-45</button>
             </div>
             <div id="expGrid" class="exp-grid"></div>
             <div class="section-title">Results Comparison</div>
@@ -369,6 +370,8 @@
 
         // ─── Dataset Switch ───
         let activeDataset = 'cifar100';
+        const datasetButtons = ['btnCifar100', 'btnCub200', 'btnResisc45'];
+        const datasetMap = {'cifar100': 'btnCifar100', 'cub200': 'btnCub200', 'resisc45': 'btnResisc45'};
         async function switchDataset(ds) {
             await fetch('/api/dataset', {
                 method: 'POST',
@@ -376,8 +379,9 @@
                 body: JSON.stringify({dataset: ds}),
             });
             activeDataset = ds;
-            document.getElementById('btnCifar100').className = ds === 'cifar100' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary';
-            document.getElementById('btnCifar10').className = ds === 'cifar10' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary';
+            for (const btnId of datasetButtons) {
+                document.getElementById(btnId).className = btnId === datasetMap[ds] ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-secondary';
+            }
             fetchStatus();
             fetchCorrelation();
         }
@@ -459,11 +463,11 @@
             fetchStatus(); fetchLogs();
         }
 
-        async function runAllBoth() {
+        async function runAllDatasets() {
             const res = await fetch('/api/run', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({mode: 'all_remaining_both'}),
+                body: JSON.stringify({mode: 'all_remaining_all'}),
             });
             logOffset = 0;
             document.getElementById('logContent').innerHTML = '<div class="log-scroll-anchor" id="scrollAnchor"></div>';

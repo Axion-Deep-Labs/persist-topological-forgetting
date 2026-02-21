@@ -154,6 +154,33 @@ def get_wrn2810(num_classes: int = 50, pretrained: bool = False) -> nn.Module:
     return WideResNet(depth=28, widen_factor=10, num_classes=num_classes)
 
 
+# ─── WRN Width Ladder (k=1,2,4,6,8) ───
+
+def get_wrn281(num_classes: int = 50, pretrained: bool = False) -> nn.Module:
+    """WideResNet-28-1 (~0.4M params). Narrowest in width ladder."""
+    return WideResNet(depth=28, widen_factor=1, num_classes=num_classes)
+
+
+def get_wrn282(num_classes: int = 50, pretrained: bool = False) -> nn.Module:
+    """WideResNet-28-2 (~1.5M params)."""
+    return WideResNet(depth=28, widen_factor=2, num_classes=num_classes)
+
+
+def get_wrn284(num_classes: int = 50, pretrained: bool = False) -> nn.Module:
+    """WideResNet-28-4 (~5.9M params)."""
+    return WideResNet(depth=28, widen_factor=4, num_classes=num_classes)
+
+
+def get_wrn286(num_classes: int = 50, pretrained: bool = False) -> nn.Module:
+    """WideResNet-28-6 (~13.0M params)."""
+    return WideResNet(depth=28, widen_factor=6, num_classes=num_classes)
+
+
+def get_wrn288(num_classes: int = 50, pretrained: bool = False) -> nn.Module:
+    """WideResNet-28-8 (~23.4M params)."""
+    return WideResNet(depth=28, widen_factor=8, num_classes=num_classes)
+
+
 # ─── MLP-Mixer ───
 
 class MixerBlock(nn.Module):
@@ -532,6 +559,11 @@ def get_model(architecture: str, num_classes: int = 50, **kwargs) -> nn.Module:
         "resnet50": get_resnet50,
         "vit_small": get_vit_small,
         "wrn2810": get_wrn2810,
+        "wrn281": get_wrn281,
+        "wrn282": get_wrn282,
+        "wrn284": get_wrn284,
+        "wrn286": get_wrn286,
+        "wrn288": get_wrn288,
         "mlp_mixer": get_mlp_mixer,
         "resnet18_wide": get_resnet18_wide,
         "densenet121": get_densenet121,

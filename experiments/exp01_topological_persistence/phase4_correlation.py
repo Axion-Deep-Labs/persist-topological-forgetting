@@ -56,7 +56,12 @@ ARCH_CLASSES = {
     "exp01": ("ResNet-18", "CNN"),
     "exp01_resnet50": ("ResNet-50", "CNN"),
     "exp01_resnet18wide": ("ResNet-18-Wide", "CNN"),
-    "exp01_wrn2810": ("WRN-28-10", "CNN"),
+    "exp01_wrn281": ("WRN-28-1", "WRN-ladder"),
+    "exp01_wrn282": ("WRN-28-2", "WRN-ladder"),
+    "exp01_wrn284": ("WRN-28-4", "WRN-ladder"),
+    "exp01_wrn286": ("WRN-28-6", "WRN-ladder"),
+    "exp01_wrn288": ("WRN-28-8", "WRN-ladder"),
+    "exp01_wrn2810": ("WRN-28-10", "WRN-ladder"),
     "exp01_densenet121": ("DenseNet-121", "CNN"),
     "exp01_efficientnet": ("EfficientNet-B0", "CNN"),
     "exp01_vgg16bn": ("VGG-16-BN", "CNN"),
@@ -321,7 +326,9 @@ def cross_architecture_analysis(result_dirs):
 
         # Get architecture class (strip dataset suffix for lookup)
         label = os.path.basename(rdir)
-        lookup_key = label.replace("_cifar10", "").replace("_cifar100", "")
+        lookup_key = label
+        for suffix in ("_cub200", "_resisc45", "_cifar10", "_cifar100"):
+            lookup_key = lookup_key.replace(suffix, "")
         arch_name, arch_class = ARCH_CLASSES.get(lookup_key, (label, "Unknown"))
 
         entry = {
@@ -551,6 +558,58 @@ def cross_architecture_analysis(result_dirs):
                 sig = "*" if p < 0.05 else ""
                 print(f"    {metric_name:>10}: ρ = {rho:.4f} (p={p:.4f}) {sig}")
 
+    # ─── WRN Width Ladder Analysis ───
+    wrn_data = [d for d in all_data if d["arch_class"] == "WRN-ladder"]
+    if len(wrn_data) >= 4:
+        print(f"\n{'=' * 70}")
+        print(f"WRN WIDTH LADDER ANALYSIS (n={len(wrn_data)})")
+        print(f"  The decisive test: same architecture, varying only width.")
+        print(f"  If H1 correlates within this ladder, topology carries")
+        print(f"  independent signal beyond parameter count.")
+        print(f"{'=' * 70}")
+
+        # Sort by param count for display
+        wrn_sorted = sorted(wrn_data, key=lambda d: d.get("num_params", 0) or 0)
+        print(f"\n  {'Model':>12} | {'Params':>8} | {'H1':>6} | {'Ret@100':>7}")
+        print(f"  {'-' * 42}")
+        for d in wrn_sorted:
+            params_str = f"{d['num_params']/1e6:.1f}M" if d.get('num_params') else "N/A"
+            h1_str = f"{d.get('H1', 0):.4f}"
+            print(f"  {d['arch_name']:>12} | {params_str:>8} | {h1_str:>6} | {d['retention_100']:6.1%}")
+
+        # Spearman within ladder
+        wrn_h1 = [d.get("H1", 0) or 0 for d in wrn_sorted]
+        wrn_ret = [d["retention_100"] for d in wrn_sorted]
+        wrn_params = [d.get("num_params", 0) or 0 for d in wrn_sorted]
+
+        if len(set(wrn_h1)) > 1:
+            rho_h1, p_h1 = stats.spearmanr(wrn_h1, wrn_ret)
+            rho_params, p_params = stats.spearmanr(wrn_params, wrn_ret)
+            print(f"\n  Within-ladder Spearman:")
+            print(f"    H1 vs retention:     rho={rho_h1:.4f} (p={p_h1:.4f})")
+            print(f"    Params vs retention:  rho={rho_params:.4f} (p={p_params:.4f})")
+
+            # Partial H1 | params within ladder
+            if len(wrn_data) >= 5 and len(set(wrn_params)) > 1:
+                rho_part, p_part = partial_correlation(wrn_h1, wrn_ret, wrn_params)
+                print(f"    H1 vs ret | params:  rho_partial={rho_part:.4f} (p={p_part:.4f})")
+
+                sig = "YES" if not np.isnan(p_part) and p_part < 0.05 else "no"
+                if sig == "YES":
+                    print(f"\n  VERDICT: H1 carries independent signal beyond scale within WRN ladder.")
+                else:
+                    print(f"\n  VERDICT: H1 does NOT carry independent signal within WRN ladder.")
+                    print(f"           Scale (parameter count) dominates topology at this resolution.")
+
+        # Store WRN ladder results
+        all_results["wrn_ladder"] = {
+            "n": len(wrn_data),
+            "architectures": [d["arch_name"] for d in wrn_sorted],
+            "h1_values": wrn_h1,
+            "retention_values": wrn_ret,
+            "param_counts": wrn_params,
+        }
+
     # ─── Permutation Test ───
     print(f"\n{'=' * 70}")
     print(f"PERMUTATION TEST (10,000 shuffles)")
@@ -686,7 +745,12 @@ def cross_architecture_analysis(result_dirs):
     }
     # Detect dataset from directory names
     first_label = os.path.basename(result_dirs[0])
-    dataset_tag = "_cifar10" if first_label.endswith("_cifar10") else "_cifar100"
+    if first_label.endswith("_cub200"):
+        dataset_tag = "_cub200"
+    elif first_label.endswith("_resisc45"):
+        dataset_tag = "_resisc45"
+    else:
+        dataset_tag = "_cifar100"
     out_path = os.path.join(os.path.dirname(result_dirs[0]), f"correlation_results{dataset_tag}.json")
     with open(out_path, "w") as f:
         json.dump(results, f, indent=2)

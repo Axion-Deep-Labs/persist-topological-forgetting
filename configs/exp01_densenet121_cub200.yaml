@@ -1,0 +1,40 @@
+# EXP-01: Topological Persistence — DenseNet-121 on CUB-200 (fine-grained)
+experiment: exp01_topological_persistence
+
+dataset: cub200
+task_a_classes: [0, 100]
+task_b_classes: [100, 200]
+data_dir: ./data
+
+architecture: densenet121
+num_classes_a: 100
+num_classes_b: 100
+
+training:
+  epochs: 100
+  batch_size: 128
+  optimizer: sgd
+  lr: 0.1
+  momentum: 0.9
+  weight_decay: 5.0e-4
+  lr_schedule: cosine
+  warmup_epochs: 5
+
+landscape:
+  num_directions: 2
+  steps_per_direction: 50
+  range: [-1.0, 1.0]
+  filter_normalize: true
+
+topology:
+  max_dimension: 1
+  max_edge_length: 2.0
+  num_landscape_samples: 2500
+
+forgetting:
+  eval_steps: [10, 25, 50, 100, 250, 500, 1000, 5000]
+  save_checkpoints: true
+
+output_dir: ./results/exp01_densenet121_cub200
+seed: 42
+device: cuda

@@ -40,48 +40,85 @@ CONFIGS_DIR = PROJECT_ROOT / "configs"
 RESULTS_DIR = PROJECT_ROOT / "results"
 VENV_PYTHON = PROJECT_ROOT / ".venv" / "bin" / "python"
 
-EXPERIMENTS_CIFAR100 = [
-    {"id": "exp01", "name": "ResNet-18", "config": "exp01.yaml", "params": "~11M", "dataset": "cifar100"},
-    {"id": "exp01_resnet50", "name": "ResNet-50", "config": "exp01_resnet50.yaml", "params": "~23.6M", "dataset": "cifar100"},
-    {"id": "exp01_vit", "name": "ViT-Small", "config": "exp01_vit.yaml", "params": "~3M", "dataset": "cifar100"},
-    {"id": "exp01_wrn2810", "name": "WRN-28-10", "config": "exp01_wrn2810.yaml", "params": "~36.5M", "dataset": "cifar100"},
-    {"id": "exp01_mlpmixer", "name": "MLP-Mixer", "config": "exp01_mlpmixer.yaml", "params": "~2.3M", "dataset": "cifar100"},
-    {"id": "exp01_resnet18wide", "name": "ResNet-18 Wide", "config": "exp01_resnet18wide.yaml", "params": "~44.7M", "dataset": "cifar100"},
-    {"id": "exp01_densenet121", "name": "DenseNet-121", "config": "exp01_densenet121.yaml", "params": "~7M", "dataset": "cifar100"},
-    {"id": "exp01_efficientnet", "name": "EfficientNet-B0", "config": "exp01_efficientnet.yaml", "params": "~4.1M", "dataset": "cifar100"},
-    {"id": "exp01_vgg16bn", "name": "VGG-16-BN", "config": "exp01_vgg16bn.yaml", "params": "~14.7M", "dataset": "cifar100"},
-    {"id": "exp01_convnext", "name": "ConvNeXt-Tiny", "config": "exp01_convnext.yaml", "params": "~27.9M", "dataset": "cifar100"},
-    {"id": "exp01_mobilenetv3", "name": "MobileNet-V3-S", "config": "exp01_mobilenetv3.yaml", "params": "~1.1M", "dataset": "cifar100"},
-    {"id": "exp01_vittiny", "name": "ViT-Tiny", "config": "exp01_vittiny.yaml", "params": "~0.3M", "dataset": "cifar100"},
-    {"id": "exp01_shufflenet", "name": "ShuffleNet-V2", "config": "exp01_shufflenet.yaml", "params": "~1.3M", "dataset": "cifar100"},
-    {"id": "exp01_regnet", "name": "RegNet-Y-400MF", "config": "exp01_regnet.yaml", "params": "~3.9M", "dataset": "cifar100"},
+# ─── Experiment definitions per dataset ───
+
+def _make_exp(exp_id, name, config, params, dataset):
+    return {"id": exp_id, "name": name, "config": config, "params": params, "dataset": dataset}
+
+# 14 original architectures + 5 WRN width ladder = 19 per dataset
+_ARCH_DEFS = [
+    ("", "ResNet-18", "exp01", "~11M"),
+    ("_resnet50", "ResNet-50", "exp01_resnet50", "~23.6M"),
+    ("_vit", "ViT-Small", "exp01_vit", "~3M"),
+    ("_wrn2810", "WRN-28-10", "exp01_wrn2810", "~36.5M"),
+    ("_wrn281", "WRN-28-1", "exp01_wrn281", "~0.4M"),
+    ("_wrn282", "WRN-28-2", "exp01_wrn282", "~1.5M"),
+    ("_wrn284", "WRN-28-4", "exp01_wrn284", "~5.9M"),
+    ("_wrn286", "WRN-28-6", "exp01_wrn286", "~13.0M"),
+    ("_wrn288", "WRN-28-8", "exp01_wrn288", "~23.4M"),
+    ("_mlpmixer", "MLP-Mixer", "exp01_mlpmixer", "~2.3M"),
+    ("_resnet18wide", "ResNet-18 Wide", "exp01_resnet18wide", "~44.7M"),
+    ("_densenet121", "DenseNet-121", "exp01_densenet121", "~7M"),
+    ("_efficientnet", "EfficientNet-B0", "exp01_efficientnet", "~4.1M"),
+    ("_vgg16bn", "VGG-16-BN", "exp01_vgg16bn", "~14.7M"),
+    ("_convnext", "ConvNeXt-Tiny", "exp01_convnext", "~27.9M"),
+    ("_mobilenetv3", "MobileNet-V3-S", "exp01_mobilenetv3", "~1.1M"),
+    ("_vittiny", "ViT-Tiny", "exp01_vittiny", "~0.3M"),
+    ("_shufflenet", "ShuffleNet-V2", "exp01_shufflenet", "~1.3M"),
+    ("_regnet", "RegNet-Y-400MF", "exp01_regnet", "~3.9M"),
 ]
 
-EXPERIMENTS_CIFAR10 = [
-    {"id": "exp01_cifar10", "name": "ResNet-18", "config": "exp01_cifar10.yaml", "params": "~11M", "dataset": "cifar10"},
-    {"id": "exp01_resnet50_cifar10", "name": "ResNet-50", "config": "exp01_resnet50_cifar10.yaml", "params": "~23.6M", "dataset": "cifar10"},
-    {"id": "exp01_vit_cifar10", "name": "ViT-Small", "config": "exp01_vit_cifar10.yaml", "params": "~3M", "dataset": "cifar10"},
-    {"id": "exp01_wrn2810_cifar10", "name": "WRN-28-10", "config": "exp01_wrn2810_cifar10.yaml", "params": "~36.5M", "dataset": "cifar10"},
-    {"id": "exp01_mlpmixer_cifar10", "name": "MLP-Mixer", "config": "exp01_mlpmixer_cifar10.yaml", "params": "~2.3M", "dataset": "cifar10"},
-    {"id": "exp01_resnet18wide_cifar10", "name": "ResNet-18 Wide", "config": "exp01_resnet18wide_cifar10.yaml", "params": "~44.7M", "dataset": "cifar10"},
-    {"id": "exp01_densenet121_cifar10", "name": "DenseNet-121", "config": "exp01_densenet121_cifar10.yaml", "params": "~7M", "dataset": "cifar10"},
-    {"id": "exp01_efficientnet_cifar10", "name": "EfficientNet-B0", "config": "exp01_efficientnet_cifar10.yaml", "params": "~4.1M", "dataset": "cifar10"},
-    {"id": "exp01_vgg16bn_cifar10", "name": "VGG-16-BN", "config": "exp01_vgg16bn_cifar10.yaml", "params": "~14.7M", "dataset": "cifar10"},
-    {"id": "exp01_convnext_cifar10", "name": "ConvNeXt-Tiny", "config": "exp01_convnext_cifar10.yaml", "params": "~27.9M", "dataset": "cifar10"},
-    {"id": "exp01_mobilenetv3_cifar10", "name": "MobileNet-V3-S", "config": "exp01_mobilenetv3_cifar10.yaml", "params": "~1.1M", "dataset": "cifar10"},
-    {"id": "exp01_vittiny_cifar10", "name": "ViT-Tiny", "config": "exp01_vittiny_cifar10.yaml", "params": "~0.3M", "dataset": "cifar10"},
-    {"id": "exp01_shufflenet_cifar10", "name": "ShuffleNet-V2", "config": "exp01_shufflenet_cifar10.yaml", "params": "~1.3M", "dataset": "cifar10"},
-    {"id": "exp01_regnet_cifar10", "name": "RegNet-Y-400MF", "config": "exp01_regnet_cifar10.yaml", "params": "~3.9M", "dataset": "cifar10"},
+EXPERIMENTS_CIFAR100 = [
+    _make_exp(
+        base_id,
+        name,
+        f"{base_id}.yaml",
+        params,
+        "cifar100",
+    )
+    for suffix, name, base_id, params in _ARCH_DEFS
 ]
+
+EXPERIMENTS_CUB200 = [
+    _make_exp(
+        f"{base_id}_cub200",
+        name,
+        f"{base_id}_cub200.yaml",
+        params,
+        "cub200",
+    )
+    for suffix, name, base_id, params in _ARCH_DEFS
+]
+
+EXPERIMENTS_RESISC45 = [
+    _make_exp(
+        f"{base_id}_resisc45",
+        name,
+        f"{base_id}_resisc45.yaml",
+        params,
+        "resisc45",
+    )
+    for suffix, name, base_id, params in _ARCH_DEFS
+]
+
+ALL_EXPERIMENTS = {
+    "cifar100": EXPERIMENTS_CIFAR100,
+    "cub200": EXPERIMENTS_CUB200,
+    "resisc45": EXPERIMENTS_RESISC45,
+}
 
 # Active dataset (switchable via API)
 active_dataset = "cifar100"
 
 def get_active_experiments():
-    return EXPERIMENTS_CIFAR100 if active_dataset == "cifar100" else EXPERIMENTS_CIFAR10
+    return ALL_EXPERIMENTS.get(active_dataset, EXPERIMENTS_CIFAR100)
 
-# Keep backward compat
-EXPERIMENTS = EXPERIMENTS_CIFAR100
+def get_all_experiments_flat():
+    """Return all experiments across all datasets."""
+    result = []
+    for exps in ALL_EXPERIMENTS.values():
+        result.extend(exps)
+    return result
 
 PHASES = [
     {"id": "phase1", "name": "Train Task A", "module": "phase1_train_task_a", "check_dir": "checkpoints", "check_file": "task_a_best.pt", "auto": True},
@@ -258,7 +295,7 @@ def runner_worker(queue, force=None):
 
     for exp_id, phase_id in queue:
         # Find experiment and phase
-        exp = next((e for e in EXPERIMENTS_CIFAR100 + EXPERIMENTS_CIFAR10 if e["id"] == exp_id), None)
+        exp = next((e for e in get_all_experiments_flat() if e["id"] == exp_id), None)
         phase = next((p for p in PHASES if p["id"] == phase_id), None)
         if not exp or not phase:
             continue
@@ -313,8 +350,8 @@ def api_switch_dataset():
     global active_dataset
     data = request.json or {}
     ds = data.get("dataset", "cifar100")
-    if ds not in ("cifar100", "cifar10"):
-        return jsonify({"error": f"Unknown dataset: {ds}"}), 400
+    if ds not in ALL_EXPERIMENTS:
+        return jsonify({"error": f"Unknown dataset: {ds}. Available: {list(ALL_EXPERIMENTS.keys())}"}), 400
     active_dataset = ds
     return jsonify({"dataset": active_dataset})
 
@@ -381,9 +418,9 @@ def api_run():
                 if status[phase["id"]] != "complete":
                     queue.append((exp["id"], phase["id"]))
 
-    elif mode == "all_remaining_both":
-        # Queue across BOTH datasets (cifar100 + cifar10), no reruns
-        for exp in EXPERIMENTS_CIFAR100 + EXPERIMENTS_CIFAR10:
+    elif mode == "all_remaining_all":
+        # Queue across ALL datasets, no reruns
+        for exp in get_all_experiments_flat():
             status = get_experiment_status(exp["id"])
             for phase in PHASES:
                 if not phase.get("auto", True):
@@ -444,7 +481,7 @@ def api_rerun():
     if phase_id == "phase2":
         phase_ids = [p["id"] for p in PHASES if p["id"].startswith("phase2") and p["id"] != "phase2b"]
 
-    experiments = ([next(e for e in EXPERIMENTS_CIFAR100 + EXPERIMENTS_CIFAR10 if e["id"] == exp_id)]
+    experiments = ([next(e for e in get_all_experiments_flat() if e["id"] == exp_id)]
                    if exp_id else list(get_active_experiments()))
 
     queue = []
@@ -479,7 +516,7 @@ def api_clean_rebuild():
 
     cleaned = {"phase2_slices": 0, "phase3_forgetting": 0}
 
-    for exp in EXPERIMENTS_CIFAR100 + EXPERIMENTS_CIFAR10:
+    for exp in get_all_experiments_flat():
         result_dir = RESULTS_DIR / exp["id"]
         topo_dir = result_dir / "topology"
         forget_dir = result_dir / "forgetting"
@@ -508,7 +545,7 @@ def api_clean_rebuild():
 
     # Queue all remaining phases for both datasets
     queue = []
-    for exp in EXPERIMENTS_CIFAR100 + EXPERIMENTS_CIFAR10:
+    for exp in get_all_experiments_flat():
         status = get_experiment_status(exp["id"])
         for phase in PHASES:
             if not phase.get("auto", True):
@@ -600,7 +637,7 @@ def api_resume():
 def api_correlation():
     """Get correlation results if available."""
     # Try dataset-specific file first (from fixed Phase 4)
-    ds_tag = "_cifar100" if active_dataset == "cifar100" else "_cifar10"
+    ds_tag = f"_{active_dataset}"
     path = RESULTS_DIR / f"correlation_results{ds_tag}.json"
     if not path.exists():
         # Fall back to legacy non-tagged file

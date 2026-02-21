@@ -1,14 +1,14 @@
-# EXP-01: Topological Persistence — ResNet-50 on CIFAR-10
+# EXP-01: Topological Persistence — ShuffleNet-V2 on CUB-200 (fine-grained)
 experiment: exp01_topological_persistence
 
-dataset: cifar10
-task_a_classes: [0, 5]
-task_b_classes: [5, 10]
+dataset: cub200
+task_a_classes: [0, 100]
+task_b_classes: [100, 200]
 data_dir: ./data
 
-architecture: resnet50
-num_classes_a: 5
-num_classes_b: 5
+architecture: shufflenet_v2
+num_classes_a: 100
+num_classes_b: 100
 
 training:
   epochs: 100
@@ -35,6 +35,6 @@ forgetting:
   eval_steps: [10, 25, 50, 100, 250, 500, 1000, 5000]
   save_checkpoints: true
 
-output_dir: ./results/exp01_resnet50_cifar10
+output_dir: ./results/exp01_shufflenet_cub200
 seed: 42
 device: cuda

@@ -1,20 +1,20 @@
-# EXP-01: Topological Persistence — ConvNeXt-Tiny on CIFAR-10
+# EXP-01: Topological Persistence — ViT-Tiny on CUB-200 (fine-grained)
 experiment: exp01_topological_persistence
 
-dataset: cifar10
-task_a_classes: [0, 5]
-task_b_classes: [5, 10]
+dataset: cub200
+task_a_classes: [0, 100]
+task_b_classes: [100, 200]
 data_dir: ./data
 
-architecture: convnext_tiny
-num_classes_a: 5
-num_classes_b: 5
+architecture: vit_tiny
+num_classes_a: 100
+num_classes_b: 100
 
 training:
   epochs: 100
   batch_size: 128
   optimizer: sgd
-  lr: 0.05
+  lr: 0.01
   momentum: 0.9
   weight_decay: 5.0e-4
   lr_schedule: cosine
@@ -35,6 +35,6 @@ forgetting:
   eval_steps: [10, 25, 50, 100, 250, 500, 1000, 5000]
   save_checkpoints: true
 
-output_dir: ./results/exp01_convnext_cifar10
+output_dir: ./results/exp01_vittiny_cub200
 seed: 42
 device: cuda
