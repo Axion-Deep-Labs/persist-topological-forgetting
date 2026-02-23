@@ -207,10 +207,11 @@ def main():
     print(f"  Max homology dim: {topo_cfg['max_dimension']}")
     print()
 
-    # Incorporate run_id into base seed so each multi-slice run gets
-    # genuinely different random directions (seed bug fix: without this,
-    # set_seed(42) always produces landscape_seed=478163327)
-    run_offset = int(args.run_id) if args.run_id else 0
+    # Each slice needs a genuinely different RNG state to produce unique
+    # landscape directions. Map run_id to offset: None->1, "1"->2, "2"->3, etc.
+    # Offset starts at 1 (not 0) so the default run differs from the bare seed,
+    # which previously always produced landscape_seed=478163327.
+    run_offset = (int(args.run_id) + 1) if args.run_id else 1
     set_seed(cfg["seed"] + run_offset)
 
     # Load data — use test set for landscape evaluation:

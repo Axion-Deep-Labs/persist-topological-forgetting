@@ -273,6 +273,7 @@
             <button class="btn btn-secondary" onclick="rerunAllPhase('phase2')">Re-run All P2</button>
             <button class="btn btn-secondary" onclick="rerunAllPhase('phase3')">Re-run All P3</button>
             <button class="btn btn-secondary" onclick="runCorrelation()">Run Correlation</button>
+            <button class="btn btn-secondary" onclick="runPredictive()">Run Predictive</button>
             <button class="btn btn-danger" onclick="cleanRebuild()" title="Delete invalid slice data (seed bug) + old forgetting curves (eval_steps changed), then rebuild all">Clean &amp; Rebuild</button>
         </div>
     </div>
@@ -504,7 +505,15 @@
             const res = await fetch('/api/run_correlation', {method: 'POST'});
             const data = await res.json();
             if (data.output) appendLogs(data.output.split('\n').filter(l => l));
+            if (data.error) appendLogs(['ERROR: ' + data.error]);
             fetchCorrelation();
+        }
+
+        async function runPredictive() {
+            const res = await fetch('/api/run_predictive', {method: 'POST'});
+            const data = await res.json();
+            if (data.output) appendLogs(data.output.split('\n').filter(l => l));
+            if (data.error) appendLogs(['ERROR: ' + data.error]);
         }
 
         async function rerunPhase(expId, phaseId) {
@@ -584,19 +593,24 @@
                                 // P1
                                 let p1cls = exp.phases.phase1 || 'pending';
                                 if (isRunning && runner.current_phase === 'Train Task A') p1cls = 'running';
-                                // P2: aggregate across all 5 slices
+                                // P2: aggregate across all 5 slices + cubical
                                 const p2ids = ['phase2','phase2_run1','phase2_run2','phase2_run3','phase2_run4'];
                                 const p2done = p2ids.filter(p => exp.phases[p] === 'complete').length;
-                                let p2cls = p2done === 5 ? 'complete' : (p2done > 0 ? 'complete' : 'pending');
-                                const p2Running = isRunning && runner.current_phase && runner.current_phase.includes('Landscape');
+                                const p2c = exp.phases.phase2c === 'complete';
+                                let p2cls = (p2done === 5 && p2c) ? 'complete' : (p2done > 0 ? 'complete' : 'pending');
+                                const p2Running = isRunning && runner.current_phase && (runner.current_phase.includes('Landscape') || runner.current_phase.includes('Cubical'));
                                 if (p2Running) p2cls = 'running';
-                                const p2label = p2done === 5 ? 'P2 5/5' : (p2done > 0 ? 'P2 ' + p2done + '/5' : 'P2 Topo');
-                                // P3
-                                let p3cls = exp.phases.phase3 || 'pending';
-                                if (isRunning && runner.current_phase === 'Sequential Forgetting') p3cls = 'running';
+                                const p2label = p2done === 5 ? (p2c ? 'P2 6/6' : 'P2 5/6') : (p2done > 0 ? 'P2 ' + p2done + '/6' : 'P2 Topo');
+                                // P3: naive + EWC + cosine
+                                const p3ids = ['phase3','phase3_ewc','phase3_cosine'];
+                                const p3done = p3ids.filter(p => exp.phases[p] === 'complete').length;
+                                let p3cls = p3done === 3 ? 'complete' : (p3done > 0 ? 'complete' : 'pending');
+                                const p3Running = isRunning && runner.current_phase && (runner.current_phase.includes('Forgetting') || runner.current_phase.includes('EWC') || runner.current_phase.includes('Cosine'));
+                                if (p3Running) p3cls = 'running';
+                                const p3label = p3done === 3 ? 'P3 3/3' : (p3done > 0 ? 'P3 ' + p3done + '/3' : 'P3 Forget');
                                 return `<div class="phase ${p1cls}">P1 Train</div>`
                                      + `<div class="phase ${p2cls}">${p2label}</div>`
-                                     + `<div class="phase ${p3cls}">P3 Forget</div>`;
+                                     + `<div class="phase ${p3cls}">${p3label}</div>`;
                             })()}
                         </div>
                         <div class="exp-results">
@@ -626,22 +640,23 @@
                 return;
             }
             let html = `<table class="results-table"><tr>
-                <th>Architecture</th><th>Params</th><th>Acc</th><th>H0</th><th>H1</th>
-                <th>Ret@10</th><th>Ret@25</th><th>Ret@50</th><th>Ret@100</th><th>Ret@500</th><th>Ret@1k</th></tr>`;
+                <th>Architecture</th><th>Params</th><th>Acc</th><th>H0</th><th>H1</th><th>H0c</th>
+                <th>Ret@10</th><th>Ret@100</th><th>Ret@500</th><th>EWC@100</th><th>Cos@100</th></tr>`;
             for (const exp of complete) {
                 const r = exp.results;
-                const fmt = (v) => v !== undefined ? (v*100).toFixed(1)+'%' : '\u2014';
+                const fmt = (v) => v !== undefined && v !== null ? (v*100).toFixed(1)+'%' : '\u2014';
+                const fmtF = (v, d) => v !== undefined && v !== null ? v.toFixed(d) : '\u2014';
                 html += `<tr>
                     <td>${exp.name}</td><td>${exp.params}</td>
                     <td>${r.accuracy ? (r.accuracy*100).toFixed(1)+'%' : '\u2014'}</td>
-                    <td>${r.h0_persistence ? r.h0_persistence.toFixed(1) : '\u2014'}</td>
-                    <td>${r.h1_persistence ? r.h1_persistence.toFixed(2) : '0.0'}</td>
+                    <td>${fmtF(r.h0_persistence, 1)}</td>
+                    <td>${fmtF(r.h1_persistence, 2)}</td>
+                    <td>${fmtF(r.h0_cubical, 1)}</td>
                     <td>${fmt(r.ret_10)}</td>
-                    <td>${fmt(r.ret_25)}</td>
-                    <td>${fmt(r.ret_50)}</td>
                     <td>${fmt(r.ret_100)}</td>
                     <td>${fmt(r.ret_500)}</td>
-                    <td>${fmt(r.ret_1000)}</td>
+                    <td>${fmt(r.ewc_ret_100)}</td>
+                    <td>${fmt(r.cosine_ret_100)}</td>
                 </tr>`;
             }
             html += '</table>';

@@ -9,11 +9,11 @@ Experimental codebase for three priority research experiments:
 ## Structure
 ```
 experiments/
-  shared/              — Datasets (CIFAR-100, CUB-200, RESISC-45), models (19 archs), baseline metrics, utilities
-  exp01_.../           — Phase 1-4 scripts for topological persistence
+  shared/              — Datasets (CIFAR-100, CUB-200, RESISC-45), models (19 archs), EWC, baseline metrics, utilities
+  exp01_.../           — Phase 1-5 scripts for topological persistence
   exp02_.../           — Phi survey (planned)
   exp03_.../           — Bekenstein analog (planned)
-configs/               — 57 YAML configs (19 architectures × 3 datasets)
+configs/               — 57 YAML configs (19 architectures x 3 datasets)
 results/               — Output (gitignored, large files)
 dashboard/             — Flask web dashboard (localhost:5050), 3-dataset selector
 ```
@@ -32,15 +32,16 @@ Features: experiment queue, GPU/CPU/RAM monitor, live output, pause/resume/stop.
 python -m experiments.exp01_topological_persistence.phase1_train_task_a --config configs/exp01.yaml
 ```
 
-## EXP-01 Current State (as of 2026-02-20)
+## EXP-01 Current State (as of 2026-02-21)
 - **3 datasets:** CIFAR-100, CUB-200-2011 (fine-grained birds), NWPU-RESISC45 (satellite scenes)
 - **19 architectures:** 14 original + WRN-28-k width ladder (k=1,2,4,6,8,10)
 - **57 configs total** (19 per dataset)
-- CIFAR-100: 14 original architectures complete (Phases 1-3), 5 WRN width ladder pending
-- CUB-200 and RESISC-45: all 19 architectures pending (new datasets)
-- CIFAR-10 removed (floor effect, no statistical power)
-- Phase 4 includes WRN Width Ladder Analysis (within-ladder Spearman + partial H1|params)
-- Dashboard: 3-dataset selector, "Run All Datasets" button
+- **Full pipeline:** Phase 1 (train) -> Phase 2 (5 Ripser slices) -> Phase 2c (cubical PH) -> Phase 3 (naive + EWC + cosine) -> Phase 4 (correlation + diagnostics) -> Phase 5 (predictive model + permutation test)
+- CIFAR-100: 14 original architectures complete (Phases 1-3 naive), WRN width ladder partial
+- CUB-200 and RESISC-45: all 19 architectures pending
+- Phase 4: slice robustness diagnostics, cubical vs Ripser comparison, EWC benefit analysis, WRN ladder analysis
+- Phase 5: LOAO CV predictive model with 5 models (A/A2/B/C/D), permutation test, matched-dimensionality control
+- Dashboard: 3-dataset selector, "Run All Datasets" button, "Run Predictive" button
 - See EXPERIMENT_LOG.md for full run history and results
 
 ## Rules

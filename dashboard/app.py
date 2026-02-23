@@ -127,7 +127,10 @@ PHASES = [
     {"id": "phase2_run2", "name": "Landscape Slice 3", "module": "phase2_landscape_topology", "check_dir": "topology", "check_file": "topology_summary_run2.json", "auto": True, "run_id": "2"},
     {"id": "phase2_run3", "name": "Landscape Slice 4", "module": "phase2_landscape_topology", "check_dir": "topology", "check_file": "topology_summary_run3.json", "auto": True, "run_id": "3"},
     {"id": "phase2_run4", "name": "Landscape Slice 5", "module": "phase2_landscape_topology", "check_dir": "topology", "check_file": "topology_summary_run4.json", "auto": True, "run_id": "4"},
+    {"id": "phase2c", "name": "Cubical Persistence", "module": "phase2c_cubical_persistence", "check_dir": "topology", "check_file": "cubical_summary.json", "auto": True},
     {"id": "phase3", "name": "Sequential Forgetting", "module": "phase3_sequential_forgetting", "check_dir": "forgetting", "check_file": "forgetting_curve.json", "auto": True},
+    {"id": "phase3_ewc", "name": "Forgetting + EWC", "module": "phase3_sequential_forgetting", "check_dir": "forgetting_ewc", "check_file": "forgetting_curve.json", "auto": True, "extra_args": ["--ewc"]},
+    {"id": "phase3_cosine", "name": "Forgetting + Cosine LR", "module": "phase3_sequential_forgetting", "check_dir": "forgetting_cosine", "check_file": "forgetting_curve.json", "auto": True, "extra_args": ["--lr-schedule", "cosine"]},
     {"id": "phase2b", "name": "Displacement Analysis", "module": "phase2b_displacement_analysis", "check_dir": "displacement", "check_file": "displacement_summary.json", "auto": False},
 ]
 
@@ -186,6 +189,14 @@ def get_experiment_results(exp_id):
             if results.get("accuracy") is None:
                 results["accuracy"] = data.get("checkpoint_accuracy", None)
 
+    # Phase 2c: cubical persistence
+    cubical_path = result_dir / "topology" / "cubical_summary.json"
+    if cubical_path.exists():
+        with open(cubical_path) as f:
+            data = json.load(f)
+            results["h0_cubical"] = data.get("H0", None)
+            results["h1_cubical"] = data.get("H1", None)
+
     # Phase 3: forgetting
     forget_path = result_dir / "forgetting" / "forgetting_curve.json"
     if forget_path.exists():
@@ -200,6 +211,28 @@ def get_experiment_results(exp_id):
                 if step > 0:
                     results[f"ret_{step}"] = point["task_a_acc"]
 
+    # Phase 3 EWC: forgetting with EWC regularization
+    ewc_path = result_dir / "forgetting_ewc" / "forgetting_curve.json"
+    if ewc_path.exists():
+        with open(ewc_path) as f:
+            data = json.load(f)
+            curve = data.get("curve", [])
+            for point in curve:
+                step = point["step"]
+                if step > 0:
+                    results[f"ewc_ret_{step}"] = point["task_a_acc"]
+
+    # Phase 3 Cosine: forgetting with cosine LR
+    cosine_path = result_dir / "forgetting_cosine" / "forgetting_curve.json"
+    if cosine_path.exists():
+        with open(cosine_path) as f:
+            data = json.load(f)
+            curve = data.get("curve", [])
+            for point in curve:
+                step = point["step"]
+                if step > 0:
+                    results[f"cosine_ret_{step}"] = point["task_a_acc"]
+
     return results
 
 
@@ -213,7 +246,10 @@ def archive_phase_results(exp_id, phase_id):
         "phase2_run2": [("topology", "topology_summary_run2.json")],
         "phase2_run3": [("topology", "topology_summary_run3.json")],
         "phase2_run4": [("topology", "topology_summary_run4.json")],
+        "phase2c": [("topology", "cubical_summary.json")],
         "phase3": [("forgetting", "forgetting_curve.json")],
+        "phase3_ewc": [("forgetting_ewc", "forgetting_curve.json")],
+        "phase3_cosine": [("forgetting_cosine", "forgetting_curve.json")],
     }
     for subdir, filename in backup_map.get(phase_id, []):
         src = result_dir / subdir / filename
@@ -227,11 +263,21 @@ def run_phase(exp, phase, run_id=None):
     config_path = CONFIGS_DIR / exp["config"]
     module = f"experiments.exp01_topological_persistence.{phase['module']}"
 
-    cmd = [str(VENV_PYTHON), "-m", module, "--config", str(config_path)]
+    # Phase 2c uses --results-dir instead of --config
+    if phase["id"] == "phase2c":
+        result_dir = RESULTS_DIR / exp["id"]
+        cmd = [str(VENV_PYTHON), "-m", module, "--results-dir", str(result_dir)]
+    else:
+        cmd = [str(VENV_PYTHON), "-m", module, "--config", str(config_path)]
+
     # Multi-slice: pass --run-id from phase definition or explicit run_id arg
     effective_run_id = run_id if run_id is not None else phase.get("run_id")
     if effective_run_id is not None and "phase2" in phase["id"]:
         cmd.extend(["--run-id", str(effective_run_id)])
+
+    # Extra args (e.g., --ewc, --lr-schedule cosine)
+    if phase.get("extra_args"):
+        cmd.extend(phase["extra_args"])
 
     log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Starting {exp['name']} — {phase['name']}"
     with runner_lock:
@@ -250,6 +296,7 @@ def run_phase(exp, phase, run_id=None):
             text=True,
             bufsize=1,
             env=env,
+            start_new_session=True,
         )
         with runner_lock:
             runner_state["process"] = process
@@ -476,10 +523,13 @@ def api_rerun():
     if not any(p["id"] == phase_id for p in PHASES):
         return jsonify({"error": f"Unknown phase: {phase_id}"}), 400
 
-    # For phase2, expand to include all slice phases
+    # For phase2, expand to include all slice phases + cubical
     phase_ids = [phase_id]
     if phase_id == "phase2":
         phase_ids = [p["id"] for p in PHASES if p["id"].startswith("phase2") and p["id"] != "phase2b"]
+    # For phase3, expand to include EWC + cosine variants
+    elif phase_id == "phase3":
+        phase_ids = [p["id"] for p in PHASES if p["id"].startswith("phase3")]
 
     experiments = ([next(e for e in get_all_experiments_flat() if e["id"] == exp_id)]
                    if exp_id else list(get_active_experiments()))
@@ -521,17 +571,10 @@ def api_clean_rebuild():
         topo_dir = result_dir / "topology"
         forget_dir = result_dir / "forgetting"
 
-        # Delete invalid multi-slice Phase 2 files (run1/run2 had same seed as default)
-        for run_id in ["1", "2"]:
-            for fname in [
-                f"topology_summary_run{run_id}.json",
-                f"loss_landscape_run{run_id}.npz",
-                f"landscape_directions_run{run_id}.pt",
-                f"persistence_diagram_H0_run{run_id}.npy",
-                f"persistence_diagram_H1_run{run_id}.npy",
-            ]:
-                f = topo_dir / fname
-                if f.exists():
+        # Delete ALL Phase 2 topology files (seed bug: all slices had identical seed)
+        if topo_dir.exists():
+            for f in topo_dir.iterdir():
+                if f.is_file() and f.suffix != ".bak":
                     f.unlink()
                     cleaned["phase2_slices"] += 1
 
@@ -582,12 +625,13 @@ def api_stop():
     with runner_lock:
         if runner_state["process"]:
             # Resume first if paused, so terminate actually works
+            pgid = os.getpgid(runner_state["process"].pid)
             if runner_state["paused"]:
                 try:
-                    os.kill(runner_state["process"].pid, signal.SIGCONT)
+                    os.killpg(pgid, signal.SIGCONT)
                 except OSError:
                     pass
-            runner_state["process"].terminate()
+            os.killpg(pgid, signal.SIGTERM)
             runner_state["logs"].append(
                 f"[{datetime.now().strftime('%H:%M:%S')}] Stopped by user."
             )
@@ -605,7 +649,7 @@ def api_pause():
     with runner_lock:
         if runner_state["process"] and runner_state["running"] and not runner_state["paused"]:
             try:
-                os.kill(runner_state["process"].pid, signal.SIGSTOP)
+                os.killpg(os.getpgid(runner_state["process"].pid), signal.SIGSTOP)
                 runner_state["paused"] = True
                 runner_state["logs"].append(
                     f"[{datetime.now().strftime('%H:%M:%S')}] Paused by user."
@@ -622,7 +666,7 @@ def api_resume():
     with runner_lock:
         if runner_state["process"] and runner_state["paused"]:
             try:
-                os.kill(runner_state["process"].pid, signal.SIGCONT)
+                os.killpg(os.getpgid(runner_state["process"].pid), signal.SIGCONT)
                 runner_state["paused"] = False
                 runner_state["logs"].append(
                     f"[{datetime.now().strftime('%H:%M:%S')}] Resumed by user."
@@ -669,6 +713,35 @@ def api_run_correlation():
 
     try:
         result = subprocess.run(cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True, timeout=60)
+        return jsonify({
+            "output": result.stdout,
+            "error": result.stderr if result.returncode != 0 else None,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/run_predictive", methods=["POST"])
+def api_run_predictive():
+    """Run Phase 5 predictive model analysis."""
+    # Find all experiments with topology + forgetting data
+    result_dirs = []
+    for exp in get_active_experiments():
+        status = get_experiment_status(exp["id"])
+        if status["phase2"] == "complete" and status["phase3"] == "complete":
+            result_dirs.append(str(RESULTS_DIR / exp["id"]))
+
+    if len(result_dirs) < 5:
+        return jsonify({"error": f"Need >= 5 complete experiments for LOAO CV, have {len(result_dirs)}"}), 400
+
+    cmd = [
+        str(VENV_PYTHON), "-m",
+        "experiments.exp01_topological_persistence.phase5_predictive_model",
+        "--results-dirs", *result_dirs,
+    ]
+
+    try:
+        result = subprocess.run(cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True, timeout=300)
         return jsonify({
             "output": result.stdout,
             "error": result.stderr if result.returncode != 0 else None,

@@ -41,6 +41,8 @@ from experiments.shared.utils import load_config
 METRICS = [
     ("H0", "H0 Persistence"),
     ("H1", "H1 Persistence"),
+    ("H0_cubical", "H0 Cubical"),
+    ("H1_cubical", "H1 Cubical"),
     ("hessian_trace_mean", "Hessian Trace"),
     ("max_eigenvalue", "Max Eigenvalue (Sharpness)"),
     ("fisher_trace", "Fisher Information Trace"),
@@ -85,12 +87,16 @@ def load_topology_aggregated(result_dir):
     """
     topo_dir = os.path.join(result_dir, "topology")
 
-    # Check for multi-slice runs
+    # Check for multi-slice runs (run1..run4 files)
     run_files = sorted(glob.glob(os.path.join(topo_dir, "topology_summary_run*.json")))
 
     if run_files:
-        # Multi-slice: aggregate across runs
+        # Multi-slice: aggregate across ALL slices including the default (no suffix)
         all_runs = []
+        default_path = os.path.join(topo_dir, "topology_summary.json")
+        if os.path.exists(default_path):
+            with open(default_path) as f:
+                all_runs.append(json.load(f))
         for rf in run_files:
             with open(rf) as f:
                 all_runs.append(json.load(f))
@@ -113,6 +119,17 @@ def load_topology_aggregated(result_dir):
         aggregated["checkpoint_accuracy"] = all_runs[0].get("checkpoint_accuracy")
         aggregated["landscape_seeds"] = [r.get("landscape_seed") for r in all_runs]
 
+        # Validate seed uniqueness (detect old seed bug)
+        seeds = [s for s in aggregated["landscape_seeds"] if s is not None]
+        if len(seeds) > 1 and len(set(seeds)) < len(seeds):
+            unique_pct = len(set(seeds)) / len(seeds) * 100
+            print(f"  WARNING: {result_dir} has duplicate landscape seeds "
+                  f"({len(set(seeds))}/{len(seeds)} unique = {unique_pct:.0f}%). "
+                  f"Slices may be identical (seed bug). Re-run Phase 2.")
+            aggregated["seed_bug_detected"] = True
+        else:
+            aggregated["seed_bug_detected"] = False
+
         return aggregated
 
     # Single slice fallback
@@ -124,6 +141,184 @@ def load_topology_aggregated(result_dir):
         data = json.load(f)
     data["n_slices"] = 1
     return data
+
+
+def load_topology_per_slice(result_dir, prefix="topology_summary"):
+    """Load per-slice topology data (not aggregated).
+
+    Returns list of dicts, one per slice. Used for slice robustness diagnostics.
+    """
+    topo_dir = os.path.join(result_dir, "topology")
+    slices = []
+
+    # Default file (slice 0)
+    default_path = os.path.join(topo_dir, f"{prefix}.json")
+    if os.path.exists(default_path):
+        with open(default_path) as f:
+            slices.append(json.load(f))
+
+    # Run files (slices 1-4)
+    run_files = sorted(glob.glob(os.path.join(topo_dir, f"{prefix}_run*.json")))
+    for rf in run_files:
+        with open(rf) as f:
+            slices.append(json.load(f))
+
+    return slices
+
+
+def load_cubical_aggregated(result_dir):
+    """Load cubical PH data, aggregating across slices if available."""
+    topo_dir = os.path.join(result_dir, "topology")
+    run_files = sorted(glob.glob(os.path.join(topo_dir, "cubical_summary_run*.json")))
+    default_path = os.path.join(topo_dir, "cubical_summary.json")
+
+    all_runs = []
+    if os.path.exists(default_path):
+        with open(default_path) as f:
+            all_runs.append(json.load(f))
+    for rf in run_files:
+        with open(rf) as f:
+            all_runs.append(json.load(f))
+
+    if not all_runs:
+        return {}
+
+    result = {}
+    for key in ["H0", "H1", "H0_count", "H1_count"]:
+        vals = [r.get(key) for r in all_runs if r.get(key) is not None]
+        if vals:
+            result[f"{key}_cubical"] = float(np.mean(vals))
+            result[f"{key}_cubical_std"] = float(np.std(vals))
+    return result
+
+
+def compute_early_aurc(forget_data, max_step=500):
+    """Area under retention curve from step 0 to max_step (trapezoidal, normalized)."""
+    initial_acc = forget_data["initial_task_a_acc"]
+    if initial_acc == 0:
+        return 0.0
+
+    points = [(p["step"], p["task_a_acc"] / initial_acc) for p in forget_data["curve"]
+              if p["step"] <= max_step]
+    if len(points) < 2:
+        return None
+    points.sort()
+    auc = 0.0
+    for i in range(1, len(points)):
+        dt = points[i][0] - points[i - 1][0]
+        avg_ret = (points[i][1] + points[i - 1][1]) / 2
+        auc += avg_ret * dt
+    return auc / max_step if max_step > 0 else 0.0
+
+
+def compute_retention_ratio(forget_data, step):
+    """Get retention ratio (acc/initial) at a specific step."""
+    initial_acc = forget_data["initial_task_a_acc"]
+    if initial_acc == 0:
+        return None
+    for point in forget_data["curve"]:
+        if point["step"] == step:
+            return point["task_a_acc"] / initial_acc
+    return None
+
+
+def slice_robustness_diagnostics(result_dirs, all_data):
+    """Run slice robustness diagnostics when multi-slice data is available.
+
+    Includes: Kruskal-Wallis, per-slice Spearman (WRN), pairwise ordering, Cohen's d.
+    """
+    # Check if any architecture has multiple slices
+    has_multi = any(d.get("n_slices", 1) > 1 for d in all_data)
+    if not has_multi:
+        return {}
+
+    print(f"\n{'=' * 70}")
+    print(f"SLICE ROBUSTNESS DIAGNOSTICS")
+    print(f"{'=' * 70}")
+
+    # Load per-slice H0 for each architecture
+    per_arch_h0 = {}
+    for rdir, d in zip(result_dirs, all_data):
+        slices = load_topology_per_slice(rdir)
+        if len(slices) > 1:
+            h0_vals = [s.get("H0", 0) for s in slices if s.get("H0") is not None]
+            if h0_vals:
+                per_arch_h0[d["arch_name"]] = h0_vals
+
+    if len(per_arch_h0) < 2:
+        print("  Not enough multi-slice architectures for diagnostics.")
+        return {}
+
+    # Kruskal-Wallis: H0 differs across architectures?
+    groups = list(per_arch_h0.values())
+    if all(len(g) > 1 for g in groups):
+        h_stat, kw_p = stats.kruskal(*groups)
+        print(f"\n  Kruskal-Wallis (H0 across architectures): H={h_stat:.2f}, p={kw_p:.6f}")
+        if kw_p < 0.05:
+            print(f"  Between-architecture H0 differences exceed within-slice noise.")
+        else:
+            print(f"  WARNING: Within-slice noise comparable to between-architecture differences.")
+    else:
+        h_stat, kw_p = None, None
+
+    # Per-slice Spearman for WRN ladder
+    wrn_archs = [d for d in all_data if d["arch_class"] == "WRN-ladder"]
+    wrn_archs_sorted = sorted(wrn_archs, key=lambda d: d.get("num_params", 0) or 0)
+    wrn_names = [d["arch_name"] for d in wrn_archs_sorted]
+    wrn_per_slice = [per_arch_h0.get(name) for name in wrn_names]
+
+    slice_rhos = []
+    pairwise_ordering = {}
+    cohens_d_results = {}
+
+    if all(s is not None for s in wrn_per_slice):
+        n_slices = min(len(s) for s in wrn_per_slice)
+        width_ranks = np.arange(len(wrn_names))  # increasing width
+
+        print(f"\n  Per-slice Spearman (WRN ladder, {n_slices} slices):")
+        for s in range(n_slices):
+            h0_this_slice = [wrn_per_slice[w][s] for w in range(len(wrn_names))]
+            rho_s, _ = stats.spearmanr(width_ranks, h0_this_slice)
+            slice_rhos.append(rho_s)
+            print(f"    Slice {s}: rho(width, H0) = {rho_s:.4f}")
+
+        if slice_rhos:
+            rhos = np.array(slice_rhos)
+            print(f"    Mean rho: {rhos.mean():.4f} +/- {rhos.std():.4f}")
+            print(f"    Min: {rhos.min():.4f}, Max: {rhos.max():.4f}")
+            n_negative = np.sum(rhos < 0)
+            print(f"    Negative (expected): {n_negative}/{len(rhos)}")
+
+        # Pairwise ordering probability for adjacent widths
+        print(f"\n  Pairwise ordering probability (adjacent WRN widths):")
+        for i in range(len(wrn_names) - 1):
+            a_vals = np.array(wrn_per_slice[i][:n_slices])
+            b_vals = np.array(wrn_per_slice[i + 1][:n_slices])
+            prob = np.mean(a_vals > b_vals)
+            pair_key = f"{wrn_names[i]} > {wrn_names[i+1]}"
+            pairwise_ordering[pair_key] = float(prob)
+            print(f"    P({pair_key}): {prob:.2f}")
+
+        # Cohen's d for adjacent widths
+        print(f"\n  Cohen's d (adjacent WRN widths):")
+        for i in range(len(wrn_names) - 1):
+            a_vals = np.array(wrn_per_slice[i][:n_slices])
+            b_vals = np.array(wrn_per_slice[i + 1][:n_slices])
+            pooled_std = np.sqrt((a_vals.var() + b_vals.var()) / 2)
+            d_val = (a_vals.mean() - b_vals.mean()) / pooled_std if pooled_std > 0 else float('inf')
+            pair_key = f"{wrn_names[i]} vs {wrn_names[i+1]}"
+            cohens_d_results[pair_key] = float(d_val)
+            size = "large" if abs(d_val) > 0.8 else ("medium" if abs(d_val) > 0.5 else "small")
+            print(f"    {pair_key}: d = {d_val:.2f} ({size})")
+
+    results = {
+        "kruskal_wallis_h": float(h_stat) if h_stat is not None else None,
+        "kruskal_wallis_p": float(kw_p) if kw_p is not None else None,
+        "per_slice_rhos": [float(r) for r in slice_rhos] if slice_rhos else None,
+        "pairwise_ordering": pairwise_ordering,
+        "cohens_d": cohens_d_results,
+    }
+    return results
 
 
 def load_displacement_metrics(result_dir):
@@ -331,12 +526,21 @@ def cross_architecture_analysis(result_dirs):
             lookup_key = lookup_key.replace(suffix, "")
         arch_name, arch_class = ARCH_CLASSES.get(lookup_key, (label, "Unknown"))
 
+        # Load cubical PH data
+        cubical = load_cubical_aggregated(rdir)
+
+        # Compute new forgetting metrics
+        early_aurc = compute_early_aurc(forget, max_step=500)
+        ret_10 = compute_retention_ratio(forget, step=10)
+
         entry = {
             "label": label,
             "arch_name": arch_name,
             "arch_class": arch_class,
             "retention_100": retention,
             "forgetting_auc": auc,
+            "early_aurc": early_aurc,
+            "ret_10": ret_10,
             "accuracy": forget["initial_task_a_acc"],
             "n_slices": topo.get("n_slices", 1),
             "num_params": num_params,
@@ -345,10 +549,30 @@ def cross_architecture_analysis(result_dirs):
         for metric_key, _ in METRICS:
             if metric_key == "num_params":
                 continue  # already set
-            entry[metric_key] = topo.get(metric_key, None)
-            std_key = f"{metric_key}_std"
-            if std_key in topo:
-                entry[std_key] = topo[std_key]
+            # Cubical metrics come from cubical dict
+            if metric_key.endswith("_cubical"):
+                entry[metric_key] = cubical.get(metric_key, None)
+                std_key = f"{metric_key}_std"
+                if std_key in cubical:
+                    entry[std_key] = cubical[std_key]
+            else:
+                entry[metric_key] = topo.get(metric_key, None)
+                std_key = f"{metric_key}_std"
+                if std_key in topo:
+                    entry[std_key] = topo[std_key]
+
+        # Load EWC forgetting data if available
+        ewc_forget_path = os.path.join(rdir, "forgetting_ewc", "forgetting_curve.json")
+        if os.path.exists(ewc_forget_path):
+            with open(ewc_forget_path) as f:
+                ewc_forget = json.load(f)
+            entry["ewc_early_aurc"] = compute_early_aurc(ewc_forget, max_step=500)
+            entry["ewc_ret_10"] = compute_retention_ratio(ewc_forget, step=10)
+            entry["ewc_auc"] = compute_forgetting_auc(ewc_forget)
+        else:
+            entry["ewc_early_aurc"] = None
+            entry["ewc_ret_10"] = None
+            entry["ewc_auc"] = None
 
         all_data.append(entry)
 
@@ -362,8 +586,8 @@ def cross_architecture_analysis(result_dirs):
     if has_multi_slice:
         print(f"  Multi-slice aggregation active (topology values are means across slices)")
 
-    print(f"\n{'Architecture':>20} | {'Class':>5} | {'Params':>8} | {'Acc':>5} | {'H0':>7} | {'H1':>6} | {'AUC':>5} | {'Ret@100':>7}")
-    print("-" * 90)
+    print(f"\n{'Architecture':>20} | {'Class':>5} | {'Params':>8} | {'Acc':>5} | {'H0':>7} | {'H1':>6} | {'AUC':>5} | {'eAURC':>6} | {'R@10':>5} | {'R@100':>6}")
+    print("-" * 105)
     for d in all_data:
         def fmt(key, w=7, dec=1):
             v = d.get(key)
@@ -372,7 +596,9 @@ def cross_architecture_analysis(result_dirs):
             return f"{v:>{w}.{dec}f}"
 
         params_str = f"{d['num_params']/1e6:.1f}M" if d['num_params'] else "N/A"
-        print(f"{d['arch_name']:>20} | {d['arch_class']:>5} | {params_str:>8} | {d['accuracy']:4.1%} | {fmt('H0', 7)} | {fmt('H1', 6)} | {d['forgetting_auc']:5.3f} | {d['retention_100']:6.1%}")
+        eaurc = f"{d['early_aurc']:.3f}" if d.get('early_aurc') is not None else "N/A"
+        r10 = f"{d['ret_10']:.1%}" if d.get('ret_10') is not None else "N/A"
+        print(f"{d['arch_name']:>20} | {d['arch_class']:>5} | {params_str:>8} | {d['accuracy']:4.1%} | {fmt('H0', 7)} | {fmt('H1', 6)} | {d['forgetting_auc']:5.3f} | {eaurc:>6} | {r10:>5} | {d['retention_100']:5.1%}")
 
     # ─── Standard Spearman Correlations ───
     retention_vals = [d["retention_100"] for d in all_data]
@@ -564,50 +790,254 @@ def cross_architecture_analysis(result_dirs):
         print(f"\n{'=' * 70}")
         print(f"WRN WIDTH LADDER ANALYSIS (n={len(wrn_data)})")
         print(f"  The decisive test: same architecture, varying only width.")
-        print(f"  If H1 correlates within this ladder, topology carries")
-        print(f"  independent signal beyond parameter count.")
         print(f"{'=' * 70}")
 
         # Sort by param count for display
         wrn_sorted = sorted(wrn_data, key=lambda d: d.get("num_params", 0) or 0)
-        print(f"\n  {'Model':>12} | {'Params':>8} | {'H1':>6} | {'Ret@100':>7}")
-        print(f"  {'-' * 42}")
+
+        # Build display table with multi-slice error bars
+        has_h0_std = any(d.get("H0_std") is not None for d in wrn_sorted)
+        has_h1_std = any(d.get("H1_std") is not None for d in wrn_sorted)
+        n_slices_list = [d.get("n_slices", 1) for d in wrn_sorted]
+        max_slices = max(n_slices_list)
+        if max_slices > 1:
+            print(f"  Multi-slice aggregation: up to {max_slices} slices per model")
+
+        header = f"  {'Model':>12} | {'Params':>8} | {'H0':>10}"
+        if has_h0_std:
+            header += f" | {'H0 std':>8}"
+        header += f" | {'H1':>8}"
+        if has_h1_std:
+            header += f" | {'H1 std':>8}"
+        header += f" | {'Ret@100':>7} | {'Slices':>6}"
+        print(f"\n{header}")
+        print(f"  {'-' * len(header)}")
         for d in wrn_sorted:
             params_str = f"{d['num_params']/1e6:.1f}M" if d.get('num_params') else "N/A"
+            h0_str = f"{d.get('H0', 0):.1f}"
             h1_str = f"{d.get('H1', 0):.4f}"
-            print(f"  {d['arch_name']:>12} | {params_str:>8} | {h1_str:>6} | {d['retention_100']:6.1%}")
+            line = f"  {d['arch_name']:>12} | {params_str:>8} | {h0_str:>10}"
+            if has_h0_std:
+                h0_std = d.get("H0_std")
+                line += f" | {h0_std:>8.1f}" if h0_std is not None else f" | {'N/A':>8}"
+            line += f" | {h1_str:>8}"
+            if has_h1_std:
+                h1_std = d.get("H1_std")
+                line += f" | {h1_std:>8.4f}" if h1_std is not None else f" | {'N/A':>8}"
+            line += f" | {d['retention_100']:6.1%} | {d.get('n_slices', 1):>6}"
+            print(line)
 
-        # Spearman within ladder
+        wrn_h0 = [d.get("H0", 0) or 0 for d in wrn_sorted]
         wrn_h1 = [d.get("H1", 0) or 0 for d in wrn_sorted]
         wrn_ret = [d["retention_100"] for d in wrn_sorted]
         wrn_params = [d.get("num_params", 0) or 0 for d in wrn_sorted]
 
+        # ── H0 Analysis (the key question: is H0 monotonicity robust?) ──
+        print(f"\n  --- H0 Analysis ---")
+
+        # Spearman: H0 vs retention within ladder
+        if len(set(wrn_h0)) > 1:
+            rho_h0, p_h0 = stats.spearmanr(wrn_h0, wrn_ret)
+            print(f"    H0 vs retention:     rho={rho_h0:.4f} (p={p_h0:.4f})")
+        else:
+            rho_h0, p_h0 = float('nan'), float('nan')
+            print(f"    H0 vs retention:     constant H0, cannot compute")
+
+        # H0 vs params (expected to be strong and negative)
+        rho_h0_params, p_h0_params = stats.spearmanr(wrn_h0, wrn_params)
+        print(f"    H0 vs params:        rho={rho_h0_params:.4f} (p={p_h0_params:.4f})")
+
+        # Monotonicity check on mean H0 (sorted by increasing width/params)
+        h0_diffs = [wrn_h0[i+1] - wrn_h0[i] for i in range(len(wrn_h0)-1)]
+        n_decreasing = sum(1 for d in h0_diffs if d < 0)
+        is_monotone = n_decreasing == len(h0_diffs)
+        print(f"    H0 monotonicity:     {n_decreasing}/{len(h0_diffs)} consecutive decreases (sorted by width)")
+        if is_monotone:
+            print(f"    RESULT: H0 monotonically decreases with width in the mean.")
+        else:
+            n_increasing = sum(1 for d in h0_diffs if d > 0)
+            print(f"    RESULT: H0 trend is NOT strictly monotonic ({n_increasing} increases detected).")
+
+        # Error bar overlap check (if multi-slice data available)
+        overlaps = None  # track for verdict
+        if has_h0_std and max_slices > 1:
+            print(f"\n    Multi-slice stability:")
+            overlaps = 0
+            pairs = 0
+            for i in range(len(wrn_sorted)):
+                for j in range(i+1, len(wrn_sorted)):
+                    h0_i, std_i = wrn_sorted[i].get("H0", 0), wrn_sorted[i].get("H0_std", 0) or 0
+                    h0_j, std_j = wrn_sorted[j].get("H0", 0), wrn_sorted[j].get("H0_std", 0) or 0
+                    # Check 1-sigma overlap
+                    sep = abs(h0_i - h0_j)
+                    combined_std = std_i + std_j
+                    if combined_std > 0 and sep < combined_std:
+                        overlaps += 1
+                        print(f"      WARNING: {wrn_sorted[i]['arch_name']} and {wrn_sorted[j]['arch_name']} "
+                              f"H0 error bars overlap (sep={sep:.1f}, combined_std={combined_std:.1f})")
+                    pairs += 1
+            if overlaps == 0:
+                print(f"      All {pairs} pairwise H0 values are separated beyond 1-sigma. Ordering is robust.")
+            else:
+                print(f"      {overlaps}/{pairs} pairs have overlapping H0 error bars. Ordering may not be robust.")
+
+        # Partial H0 | params within ladder
+        if len(wrn_data) >= 5 and len(set(wrn_params)) > 1 and len(set(wrn_h0)) > 1:
+            rho_h0_part, p_h0_part = partial_correlation(wrn_h0, wrn_ret, wrn_params)
+            print(f"    H0 vs ret | params:  rho_partial={rho_h0_part:.4f} (p={p_h0_part:.4f})")
+        else:
+            rho_h0_part, p_h0_part = float('nan'), float('nan')
+
+        # ── H1 Analysis ──
+        print(f"\n  --- H1 Analysis ---")
         if len(set(wrn_h1)) > 1:
             rho_h1, p_h1 = stats.spearmanr(wrn_h1, wrn_ret)
             rho_params, p_params = stats.spearmanr(wrn_params, wrn_ret)
-            print(f"\n  Within-ladder Spearman:")
             print(f"    H1 vs retention:     rho={rho_h1:.4f} (p={p_h1:.4f})")
             print(f"    Params vs retention:  rho={rho_params:.4f} (p={p_params:.4f})")
 
-            # Partial H1 | params within ladder
             if len(wrn_data) >= 5 and len(set(wrn_params)) > 1:
                 rho_part, p_part = partial_correlation(wrn_h1, wrn_ret, wrn_params)
                 print(f"    H1 vs ret | params:  rho_partial={rho_part:.4f} (p={p_part:.4f})")
+        else:
+            rho_h1, p_h1 = float('nan'), float('nan')
+            rho_params, p_params = stats.spearmanr(wrn_params, wrn_ret)
+            rho_part, p_part = float('nan'), float('nan')
+            print(f"    H1 is zero/constant across the ladder.")
+            print(f"    This suggests H1 is architecture-family specific, not scale-driven.")
+            print(f"    Params vs retention:  rho={rho_params:.4f} (p={p_params:.4f})")
 
-                sig = "YES" if not np.isnan(p_part) and p_part < 0.05 else "no"
-                if sig == "YES":
-                    print(f"\n  VERDICT: H1 carries independent signal beyond scale within WRN ladder.")
-                else:
-                    print(f"\n  VERDICT: H1 does NOT carry independent signal within WRN ladder.")
-                    print(f"           Scale (parameter count) dominates topology at this resolution.")
+        # ── Verdict ──
+        print(f"\n  --- VERDICT ---")
+        # H0 verdict
+        if not np.isnan(rho_h0) and not np.isnan(p_h0):
+            if is_monotone and overlaps is not None and overlaps == 0:
+                print(f"  H0: Monotonic decrease with width is ROBUST across {max_slices} slices.")
+                print(f"       But H0 tracks params perfectly (rho={rho_h0_params:.4f}), so cannot separate the two.")
+            elif is_monotone:
+                print(f"  H0: Monotonic decrease with width, but SINGLE-SLICE only.")
+                print(f"       Cannot confirm robustness until multi-slice runs complete.")
+            else:
+                print(f"  H0: Trend is not monotonic. H0 ordering is not stable across widths.")
+        # H1 verdict
+        h1_all_zero = all(h == 0 for h in wrn_h1)
+        if h1_all_zero:
+            print(f"  H1: Collapsed to zero across the entire WRN ladder.")
+            print(f"       H1 topology is architecture-motif dependent, not scale-driven.")
+        elif len(set(wrn_h1)) <= 1:
+            print(f"  H1: Constant across the ladder (no discriminative power).")
+        else:
+            h1_sig = not np.isnan(p_part) and p_part < 0.05
+            if h1_sig:
+                print(f"  H1: Carries independent signal beyond scale within WRN ladder.")
+            else:
+                print(f"  H1: Does NOT carry independent signal within WRN ladder.")
 
         # Store WRN ladder results
         all_results["wrn_ladder"] = {
             "n": len(wrn_data),
             "architectures": [d["arch_name"] for d in wrn_sorted],
+            "h0_values": wrn_h0,
+            "h0_stds": [d.get("H0_std") for d in wrn_sorted],
             "h1_values": wrn_h1,
+            "h1_stds": [d.get("H1_std") for d in wrn_sorted],
             "retention_values": wrn_ret,
             "param_counts": wrn_params,
+            "n_slices": n_slices_list,
+            "h0_monotonic": is_monotone,
+            "h0_vs_retention_rho": float(rho_h0) if not np.isnan(rho_h0) else None,
+            "h0_vs_retention_p": float(p_h0) if not np.isnan(p_h0) else None,
+            "h0_vs_params_rho": float(rho_h0_params),
+            "h0_partial_rho": float(rho_h0_part) if not np.isnan(rho_h0_part) else None,
+            "h0_partial_p": float(p_h0_part) if not np.isnan(p_h0_part) else None,
+            "h1_all_zero": h1_all_zero,
+        }
+
+    # ─── Slice Robustness Diagnostics ───
+    robustness = slice_robustness_diagnostics(result_dirs, all_data)
+    if robustness:
+        all_results["slice_robustness"] = robustness
+
+    # ─── Cubical vs Ripser Comparison ───
+    ripser_h0 = [d.get("H0") for d in all_data]
+    cubical_h0 = [d.get("H0_cubical") for d in all_data]
+    ripser_h1 = [d.get("H1") for d in all_data]
+    cubical_h1 = [d.get("H1_cubical") for d in all_data]
+
+    has_cubical = any(v is not None for v in cubical_h0)
+    if has_cubical:
+        print(f"\n{'=' * 70}")
+        print(f"CUBICAL vs RIPSER COMPARISON")
+        print(f"{'=' * 70}")
+
+        # H0 agreement
+        valid_h0 = [(r, c) for r, c in zip(ripser_h0, cubical_h0)
+                     if r is not None and c is not None]
+        if len(valid_h0) >= 3:
+            r_vals, c_vals = zip(*valid_h0)
+            rho_h0_rc, p_h0_rc = stats.spearmanr(r_vals, c_vals)
+            print(f"\n  H0 Ripser vs H0 Cubical: rho={rho_h0_rc:.4f} (p={p_h0_rc:.4f}, n={len(valid_h0)})")
+            all_results["cubical_vs_ripser_H0_rho"] = float(rho_h0_rc)
+            all_results["cubical_vs_ripser_H0_p"] = float(p_h0_rc)
+
+        # H1 agreement
+        valid_h1 = [(r, c) for r, c in zip(ripser_h1, cubical_h1)
+                     if r is not None and c is not None]
+        if len(valid_h1) >= 3:
+            r_vals, c_vals = zip(*valid_h1)
+            if len(set(r_vals)) > 1 and len(set(c_vals)) > 1:
+                rho_h1_rc, p_h1_rc = stats.spearmanr(r_vals, c_vals)
+                print(f"  H1 Ripser vs H1 Cubical: rho={rho_h1_rc:.4f} (p={p_h1_rc:.4f}, n={len(valid_h1)})")
+                all_results["cubical_vs_ripser_H1_rho"] = float(rho_h1_rc)
+                all_results["cubical_vs_ripser_H1_p"] = float(p_h1_rc)
+            else:
+                print(f"  H1 Ripser vs H1 Cubical: one or both constant, cannot correlate")
+
+        # Cubical metrics vs retention
+        print(f"\n  Cubical metrics vs forgetting:")
+        for ckey, cname in [("H0_cubical", "H0 Cubical"), ("H1_cubical", "H1 Cubical")]:
+            c_vals_all = [d.get(ckey) for d in all_data]
+            valid = [(v, r) for v, r in zip(c_vals_all, retention_vals) if v is not None]
+            if len(valid) >= 3:
+                cv, cr = zip(*valid)
+                if len(set(cv)) > 1:
+                    rho_c, p_c = stats.spearmanr(cv, cr)
+                    sig = "*" if p_c < 0.05 else ""
+                    print(f"    {cname} vs ret@100: rho={rho_c:.4f} (p={p_c:.4f}) {sig}")
+
+    # ─── EWC Benefit Analysis ───
+    ewc_data = [(d, d.get("ewc_early_aurc"), d.get("early_aurc"))
+                for d in all_data
+                if d.get("ewc_early_aurc") is not None and d.get("early_aurc") is not None]
+    if len(ewc_data) >= 3:
+        print(f"\n{'=' * 70}")
+        print(f"EWC BENEFIT ANALYSIS (n={len(ewc_data)})")
+        print(f"{'=' * 70}")
+
+        # EWC benefit = ewc_aurc - naive_aurc (positive = EWC helped)
+        ewc_benefit = [e[1] - e[2] for e in ewc_data]
+        print(f"\n  {'Architecture':>20} | {'Naive AURC':>10} | {'EWC AURC':>10} | {'Benefit':>10}")
+        print(f"  {'-' * 60}")
+        for d, ewc_aurc, naive_aurc in ewc_data:
+            benefit = ewc_aurc - naive_aurc
+            print(f"  {d['arch_name']:>20} | {naive_aurc:>10.4f} | {ewc_aurc:>10.4f} | {benefit:>+10.4f}")
+
+        # Correlate topology with EWC benefit
+        print(f"\n  Topology vs EWC benefit:")
+        for tkey, tname in [("H0", "H0"), ("H1", "H1"), ("H0_cubical", "H0 Cubical"), ("num_params", "Params")]:
+            t_vals = [d.get(tkey) for d, _, _ in ewc_data]
+            valid = [(t, b) for t, b in zip(t_vals, ewc_benefit) if t is not None]
+            if len(valid) >= 3:
+                tv, bv = zip(*valid)
+                if len(set(tv)) > 1:
+                    rho_eb, p_eb = stats.spearmanr(tv, bv)
+                    sig = "*" if p_eb < 0.05 else ""
+                    print(f"    {tname:>15} vs EWC benefit: rho={rho_eb:.4f} (p={p_eb:.4f}) {sig}")
+
+        all_results["ewc_benefit"] = {
+            "n": len(ewc_data),
+            "architectures": [d["arch_name"] for d, _, _ in ewc_data],
+            "benefits": ewc_benefit,
         }
 
     # ─── Permutation Test ───
@@ -727,12 +1157,17 @@ def cross_architecture_analysis(result_dirs):
                 print(f"  ✓ Parameter count alone does NOT predict retention. Topology adds value.")
 
     # Save full results
+    early_aurc_vals = [d.get("early_aurc") for d in all_data]
+    ret_10_vals = [d.get("ret_10") for d in all_data]
+
     results = {
         "n_architectures": len(all_data),
         "architectures": [d["label"] for d in all_data],
         "arch_classes": {d["label"]: d["arch_class"] for d in all_data},
         "retention_ratios_100": retention_vals,
         "forgetting_auc_values": auc_vals,
+        "early_aurc_values": early_aurc_vals,
+        "ret_10_values": ret_10_vals,
         "per_architecture": all_data,
         "correlations": all_results,
         "best_metric": best_metric,
