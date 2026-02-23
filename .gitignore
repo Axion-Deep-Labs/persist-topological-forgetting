@@ -28,6 +28,9 @@ wandb/
 # Jupyter
 .ipynb_checkpoints/
 
+# Corporate (local only, not part of research repo)
+corporate/
+
 # LaTeX build artifacts
 paper/*.aux
 paper/*.bbl
