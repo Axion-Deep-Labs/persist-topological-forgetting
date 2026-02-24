@@ -4,15 +4,18 @@
 
 Can the topology of a loss landscape predict how well a model resists catastrophic forgetting?
 
-We compute persistent homology on 2D cross-sections of loss landscapes across 19 architectures and 2 datasets (3rd in progress), then test whether topological features predict knowledge retention under sequential training. A WRN width ladder isolates topology from scale.
+We compute persistent homology on 2D cross-sections of loss landscapes across 19 architectures and 3 datasets (57 total configurations), then test whether topological features predict knowledge retention under sequential training. A WRN width ladder isolates topology from scale.
 
-## Key Finding
+## Key Findings
 
-**Topology predicts forgetting on hard tasks where model size fails.**
+**1. Topology rescues forgetting prediction on fine-grained tasks.**
+On CUB-200 (200 bird species), parameter count alone predicts retention in the *wrong direction* (rho = -0.92). Adding topological features rescues the prediction (permutation p = 0.037, MAE reduction 17.5%). This finding does not survive Bonferroni correction across 3 datasets (adjusted alpha = 0.0167), so we report it as suggestive.
 
-On CUB-200 (200 bird species, fine-grained classification), parameter count alone predicts retention in the *wrong direction* (rho = -0.92). Adding topological features rescues the prediction entirely (permutation test p = 0.037). On easy benchmarks like CIFAR-100, parameter count dominates and topology is redundant.
+**2. Topology is not a universal forgetting predictor.**
+On RESISC-45 (satellite scenes, also hard), topology adds no predictive value (p = 0.566). The CUB-200 signal appears specific to fine-grained discrimination, not hard tasks in general.
 
-This is exactly the commercially relevant regime: real-world continual learning tasks (medical imaging, rare fraud patterns, edge-case driving) are hard and fine-grained.
+**3. Topology predicts mitigation benefit.**
+The most stable cross-dataset signal: H0 (connected components) predicts how much EWC regularization helps, replicating across CIFAR-100 (rho = 0.76, p = 0.0002) and RESISC-45 (rho = 0.86, p = 2.4e-6). Loss landscape connectivity is a mitigation sensitivity marker.
 
 ## Results
 
@@ -21,25 +24,20 @@ This is exactly the commercially relevant regime: real-world continual learning 
 | Dataset | Outcome | Params-only rho | +Topology rho | Perm. p | Verdict |
 |---------|---------|-----------------|---------------|---------|---------|
 | CIFAR-100 (n=19) | ret@100 | 0.43 | 0.30 | 0.295 | Not significant |
-| **CUB-200 (n=19)** | **ret@10** | **-0.92** | **0.34** | **0.037** | **Significant** |
+| **CUB-200 (n=19)** | **ret@10** | **-0.92** | **0.34** | **0.037** | **Suggestive** |
+| RESISC-45 (n=19) | ret@100 | -0.32 | -0.33 | 0.566 | Not significant |
 
-### CIFAR-100 Correlation (n=19, Easy Benchmark)
+CUB-200 p=0.037 does not survive Bonferroni across 3 datasets (adjusted alpha = 0.0167).
 
-| Metric | Spearman rho | p-value | Bonferroni |
-|--------|-------------|---------|------------|
-| Parameter count vs ret@100 | -0.76 | 0.0002 | Survives |
-| H1 persistence vs ret@100 | 0.47 | 0.042 | Does not survive |
-| Partial H1 (controlling params) | 0.33 | 0.19 | -- |
+### EWC Benefit: Cross-Dataset Replication
 
-On this easy task, bigger models simply retain better. Topology adds nothing beyond what scale already explains.
+| Dataset | H0 vs EWC benefit rho | p-value |
+|---------|----------------------|---------|
+| CIFAR-100 | 0.76 | 0.0002 |
+| RESISC-45 | 0.86 | 2.4e-6 |
+| CUB-200 | 0.31 | 0.19 |
 
-### CUB-200 Correlation (n=19, Hard Fine-Grained)
-
-| Metric | Spearman rho | p-value |
-|--------|-------------|---------|
-| Parameter count vs ret@100 | -0.27 | 0.27 |
-
-Parameter count fails completely. Rankings shuffle compared to CIFAR-100. Topology provides the only predictive signal for early forgetting (ret@10).
+H0 (connected components) predicts how much EWC regularization helps on 2 of 3 datasets. Architectures with more connected components in their loss landscape benefit more from regularization-based mitigation.
 
 ### CUB-200 ret@10 Detail
 
@@ -54,8 +52,8 @@ Parameter count fails completely. Rankings shuffle compared to CIFAR-100. Topolo
 
 - **CIFAR-100:** 19/19 architectures, Phases 1-5 complete
 - **CUB-200-2011:** 19/19 architectures, Phases 1-5 complete
-- **RESISC-45:** In progress (cross-domain generalization test)
-- **38 of 57 total configurations complete**
+- **RESISC-45:** 19/19 architectures, Phases 1-5 complete
+- **57 of 57 total configurations complete**
 
 ## Setup
 

@@ -2,13 +2,13 @@
 
 ## EXP-01: Topological Persistence
 
-### Current State (38/57 Configurations Complete)
+### Current State (57/57 Configurations Complete)
 
-**Two datasets fully complete (19 architectures each, all 7 phases). RESISC-45 pending.**
+**All three datasets fully complete (19 architectures each, all 7 phases).**
 
 - **CIFAR-100:** 19/19 architectures, Phases 1-5 complete
 - **CUB-200-2011:** 19/19 architectures, Phases 1-5 complete
-- **RESISC-45:** 0/19 architectures (pending)
+- **RESISC-45:** 19/19 architectures, Phases 1-5 complete
 
 ---
 
@@ -123,14 +123,72 @@
 
 ---
 
-### Cross-Dataset Insight
+### RESISC-45 Results (n=19, Hard Satellite Scene Classification)
 
-**The central finding:** Topology's predictive value depends on task difficulty.
+#### Phase 4 Correlation (n=19, RESISC-45)
+- **Parameter count:** rho = -0.29, p = 0.22 (NOT significant)
+- **H0 persistence:** rho = 0.44, p = 0.059 (marginal)
+- **H1 persistence:** rho = 0.17, p = 0.48 (not significant)
+- **Conclusion:** Like CUB-200, parameter count fails on this hard task. Unlike CUB-200, topology also provides no direct predictive signal for retention.
 
-- **Easy tasks (CIFAR-100):** Parameter count is all you need. Bigger models retain better. Topology is redundant because scale already explains the variance.
-- **Hard tasks (CUB-200):** Parameter count FAILS as a predictor. The retention rankings shuffle. Topology captures early knowledge fragility that nothing else does.
+#### Phase 4 WRN Width Ladder (n=6, RESISC-45)
+- H0 monotonic with width (rho = -1.0 vs params, consistent across all 3 datasets)
+- H0 vs retention: rho = 0.32, p = 0.54 (not significant)
 
-This is exactly the commercially relevant regime. Real-world continual learning tasks (medical imaging, rare fraud patterns, edge-case driving scenarios) are hard and fine-grained, like CUB-200.
+#### Phase 4 EWC Benefit (n=19, RESISC-45) -- STRONGEST SIGNAL
+- H0 vs EWC benefit: rho = 0.86, p = 2.4e-6 (highly significant)
+- Params vs EWC benefit: rho = -0.54, p = 0.018
+- H1 vs EWC benefit: rho = 0.05, p = 0.84 (not significant)
+- **Cross-dataset replication:** Matches CIFAR-100 (rho = 0.76, p = 0.0002)
+
+#### Phase 4 Cubical vs Ripser Agreement (RESISC-45)
+- H1: rho = 1.0 (perfect agreement, consistent across all 3 datasets)
+
+#### Phase 5 Predictive Model (n=19, RESISC-45)
+
+| Outcome | Params-only rho | Params+Topo rho | Perm. p | Verdict |
+|---|---|---|---|---|
+| ret@100 | -0.32 | -0.33 | 0.566 | Not significant |
+| ret@10 | -0.89 | -0.95 | 0.628 | Not significant |
+| Early AURC | -0.32 | -0.44 | 0.743 | Not significant |
+
+**RESISC-45 summary:** Topology does not add significant predictive value for retention. However, H0 strongly predicts EWC benefit (rho = 0.86), replicating the CIFAR-100 finding.
+
+---
+
+### Cross-Dataset Summary (57/57 Complete)
+
+#### Predictive Model Comparison
+
+| Dataset | Task Difficulty | Params-only rho | +Topology rho | Perm. p | Verdict |
+|---|---|---|---|---|---|
+| CIFAR-100 | Easy | 0.43 | 0.30 | 0.295 | Topology redundant |
+| **CUB-200** | **Hard (fine-grained)** | **-0.92** | **0.34** | **0.037** | **Topology rescues** |
+| RESISC-45 | Hard (satellite) | -0.89 | -0.95 | 0.628 | Topology ineffective |
+
+**Note:** CUB-200 p=0.037 does NOT survive Bonferroni correction across 3 datasets (adjusted alpha = 0.0167).
+
+#### EWC Benefit: Most Stable Cross-Dataset Signal
+
+| Dataset | H0 vs EWC benefit rho | p-value | Params vs EWC benefit rho | p-value |
+|---|---|---|---|---|
+| CIFAR-100 | 0.76 | 0.0002 | -0.74 | 0.0003 |
+| **RESISC-45** | **0.86** | **2.4e-6** | -0.54 | 0.018 |
+| CUB-200 | 0.31 | 0.19 | -0.40 | 0.09 |
+
+H0 topology predicts how much EWC regularization helps on 2 of 3 datasets. This suggests topology is a **mitigation sensitivity marker**: it indicates which architectures will benefit most from continual learning interventions, rather than predicting raw forgetting directly.
+
+#### Revised Interpretation
+
+1. **Topology is not a universal forgetting predictor.** It rescues prediction on CUB-200 (fine-grained) but not RESISC-45 (satellite scenes), despite both being hard tasks.
+2. **The CUB-200 finding is task-specific, not difficulty-general.** Fine-grained discrimination (distinguishing 200 bird species) creates a forgetting regime where loss landscape geometry matters. Satellite scene classification does not.
+3. **H0 predicts mitigation benefit, not raw forgetting.** The H0-EWC benefit correlation replicates across CIFAR-100 (rho=0.76) and RESISC-45 (rho=0.86). Loss landscape connectivity predicts how much regularization helps.
+4. **WRN H0 monotonicity is universal.** H0 decreases perfectly with width (rho=-1.0 vs params) across all 3 datasets. The topological measurement is reliable; its relationship to forgetting is task-dependent.
+
+#### Proposed Next Analysis
+- Pooled model with dataset interaction term: retention ~ params + H0 + dataset + H0 x dataset
+- Multi-seed runs on CUB-200 ret@10 for confidence intervals
+- Sign consistency check on H0 regression coefficients across datasets
 
 ---
 
@@ -269,16 +327,19 @@ This is exactly the commercially relevant regime. Real-world continual learning 
 ---
 
 ### Next Steps
-- **Run all 19 architectures on RESISC-45** (3rd domain, cross-domain generalization)
+- **Pooled interaction model** (retention ~ params + H0 + dataset + H0 x dataset)
 - **Multi-seed runs** for confidence intervals on the CUB-200 ret@10 finding
 - **Scale to 30+ architectures** for more statistical power (target: p < 0.01)
-- **Characterize task-difficulty boundary** (when does topology start mattering?)
-- **Prototype forgetting risk API**
+- **Characterize what makes CUB-200 special** (fine-grained discrimination regime)
+- **Prototype forgetting risk API** (commercial angle: mitigation recommendation)
 - **ArXiv publication + NeurIPS/ICML submission**
 
 ### Known Issues
+- **CUB-200 p=0.037 does not survive Bonferroni** across 3 datasets (adjusted alpha = 0.0167)
 - **Param count confound on CIFAR-100:** rho = -0.76 dominates everything. Topology redundant on easy tasks.
 - **CUB-200 finding is ret@10 only:** ret@100 and early_aurc not significant. The signal is in early forgetting.
+- **RESISC-45 topology signal absent:** Despite being a hard task, topology does not predict forgetting here.
+- **CUB-200 EWC benefit signal weak:** H0 vs EWC benefit rho = 0.31, p = 0.19 (does not replicate CIFAR/RESISC)
 - **H1 does not survive Bonferroni on CIFAR-100:** p_Bonf = 0.50 with 12 tests
 - Barrier metric overflows for large models (clamped at 1e6)
 - Hessian trace goes negative for some models (saddle point)
