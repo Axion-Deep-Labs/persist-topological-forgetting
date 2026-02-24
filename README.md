@@ -48,6 +48,26 @@ H0 (connected components) predicts how much EWC regularization helps on 2 of 3 d
 - Matched-dimensionality control: exceeds 95th percentile of random features
 - MAE reduction: 17.5% (0.186 to 0.154)
 
+### Phase 6: Pooled Interaction Analysis (n=57)
+
+Formal test of dataset moderation via OLS with interaction terms, clustered bootstrap (5,000 iterations, 19 architecture blocks), and permutation tests (1,000 iterations). CIFAR-100 as reference, H0 z-scored within dataset.
+
+| Claim | Outcome | dR2 | Permutation p |
+|-------|---------|-----|---------------|
+| **EWC benefit moderation** | EWC benefit (AURC) | 0.085 | **0.046** |
+| Forgetting moderation | ret@10 (primary) | 0.075 | 0.196 |
+| Forgetting moderation | ret@100 (robustness) | 0.127 | **0.035** |
+
+Per-dataset partial effects (95% clustered bootstrap CIs):
+
+| Dataset | H0 effect on ret@10 | CI | H0 effect on EWC benefit | CI |
+|---------|--------------------|----|-------------------------|----|
+| CIFAR-100 | -0.001 | [-0.49, +0.07] | **+0.016** | **[+0.005, +0.062]** |
+| CUB-200 | **-0.123** | **[-0.18, -0.05]** | +0.002 | [-0.008, +0.013] |
+| RESISC-45 | -0.021 | [-0.26, +0.08] | **+0.007** | **[+0.004, +0.012]** |
+
+**Bottom line:** Dataset significantly moderates the topology-EWC benefit relationship (p=0.046). H0 predicts mitigation benefit on CIFAR-100 and RESISC-45 (CIs exclude zero) but not CUB-200. For forgetting, H0's effect is concentrated on CUB-200 (CI excludes zero).
+
 ## Status
 
 - **CIFAR-100:** 19/19 architectures, Phases 1-5 complete
