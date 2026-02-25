@@ -236,6 +236,65 @@ All VIFs below 3.5 for z-scored model. Raw H0 sensitivity shows VIF up to 25 (ex
 
 ---
 
+### Manuscript Elements
+
+#### 1. Analysis Timeline and Decision Gates
+
+The study was designed as a three-dataset cross-architecture survey from the outset (57 configurations: 19 architectures x 3 datasets). The original hypothesis was that persistent homology features of loss landscapes (H0 and H1) predict resistance to catastrophic forgetting. Retention at step 10 (ret@10) was pre-specified as the primary outcome for forgetting prediction, with ret@100 and early AURC as robustness checks.
+
+CIFAR-100 was run first and showed that parameter count dominates (rho = -0.76, survives Bonferroni) with topology adding no significant predictive value (Phase 5 permutation p = 0.295). This was the expected null for easy tasks. CUB-200 was run second and showed that parameter count fails (rho = -0.27, not significant) while topology rescues prediction (permutation p = 0.037). These two results were consistent with the pre-specified hypothesis that topology matters when scale alone is insufficient. RESISC-45 was run third and returned a null result for topology (p = 0.566), despite also being a hard task. This falsified the simpler "topology helps on hard tasks" framing.
+
+The EWC benefit analysis (H0 predicting how much EWC regularization helps) was computed as part of Phase 4 diagnostics, not as the original target hypothesis. The shift from "topology predicts forgetting" to "topology predicts mitigation benefit" emerged from the data after observing the RESISC-45 null. The Phase 6 pooled interaction model was designed post hoc to formalize the cross-dataset moderation pattern. We report this analysis path transparently: the EWC moderation finding (p = 0.046) should be interpreted as a data-driven discovery requiring pre-registered replication, not as a confirmatory result.
+
+#### 2. Proposed Mechanism: Basin Fragmentation and Regularization Sensitivity
+
+H0 in persistent homology counts connected components in the sublevel set filtration of the loss landscape. A high H0 count indicates a fragmented landscape with many disconnected basins at low loss values, while a low H0 count indicates a smooth landscape with few basins.
+
+We propose the **basin fragmentation hypothesis**: H0 measures the degree of loss landscape fragmentation, which determines how much curvature-based regularization can help by preventing inter-basin drift during sequential training.
+
+When a landscape has many disconnected basins (high H0):
+- Naive sequential training is likely to push parameters out of the current basin into a different one, causing catastrophic forgetting
+- EWC penalizes movement away from the current optimum, weighted by Fisher information (local curvature), keeping the model within its basin
+- The benefit of this penalty is large because without it, the model would drift between basins
+
+When a landscape has few basins (low H0, smooth landscape):
+- There is effectively one broad basin; naive training perturbs weights but does not cross basin boundaries
+- EWC provides little additional benefit because the model stays in the same basin regardless
+- The penalty is wasted on a problem that does not exist
+
+This is consistent with our data: H0 predicts EWC benefit on CIFAR-100 (rho = 0.76) and RESISC-45 (rho = 0.86), both datasets where EWC produces measurable variance in retention. The CUB-200 null for EWC benefit (rho = 0.31, p = 0.19) may indicate that fine-grained discrimination creates a forgetting regime driven by feature-level interference rather than parameter-level basin drift, a mechanism that EWC's Fisher-weighted penalty cannot address.
+
+The WRN width ladder provides supporting evidence: H0 decreases perfectly with width (rho = -1.0 vs params) across all three datasets, consistent with wider networks having smoother landscapes with fewer disconnected basins. This measurement is robust (validated by cubical persistent homology, rho = 1.0 agreement with Ripser across all datasets).
+
+This mechanism is tentative. We do not claim to have proven that basin fragmentation causes the observed relationship. A causal test would require intervening on landscape topology (e.g., via landscape-aware regularization) and measuring the effect on EWC benefit.
+
+#### 3. External Validity and Limitations
+
+**What we claim:**
+- Dataset significantly moderates the relationship between loss landscape topology (H0) and EWC benefit (Phase 6 permutation p = 0.046)
+- H0 partial effects on EWC benefit exclude zero on CIFAR-100 and RESISC-45 but not CUB-200
+- On CUB-200 specifically, topology provides the only predictive signal for early forgetting (ret@10 CI excludes zero), but this finding does not survive cross-dataset multiplicity correction
+
+**What we do not claim:**
+- That topology universally predicts forgetting. It does not (RESISC-45 null).
+- That the EWC moderation finding is confirmatory. It emerged from exploratory analysis and requires pre-registered replication.
+- That the basin fragmentation mechanism is established. It is a plausible interpretation consistent with the data, not a tested causal hypothesis.
+
+**Scope limitations:**
+- **Sample size:** 19 architectures provide moderate statistical power. The WRN width ladder (6 points) controls for architecture family but has limited degrees of freedom for within-ladder inference.
+- **One mitigation method:** Only EWC was tested. If H0 does not predict benefit under alternative mitigation strategies (Synaptic Intelligence, PackNet, progressive neural networks), the finding is EWC-specific rather than topology-general. Testing at least one additional mitigation method is the critical next experiment.
+- **Three datasets:** Good domain diversity (natural images, fine-grained classification, satellite remote sensing) but not exhaustive. The CUB-200 forgetting prediction signal and the CUB-200 EWC benefit null could both be artifacts of this specific dataset's structure.
+- **2D landscape projections:** Persistent homology is computed on 2D cross-sections of a high-dimensional loss landscape. These projections are inherently stochastic (5 independent slices per architecture mitigate but do not eliminate sampling variance). Topological features of the full landscape may differ.
+- **p-value thresholds:** EWC moderation p = 0.046 and forgetting ret@100 p = 0.035 are borderline. With different random seeds or bootstrap samples, these could shift above 0.05.
+
+**Falsification targets:**
+1. If Synaptic Intelligence benefit shows no H0 correlation on CIFAR-100 or RESISC-45, the mechanism is EWC-specific
+2. If adding 10+ architectures eliminates the CUB-200 ret@10 signal (CI crosses zero), the forgetting prediction claim fails
+3. If a landscape intervention (e.g., sharpness-aware minimization) changes H0 without changing EWC benefit, the causal link is broken
+4. If cubical persistence (full grid, not subsampled) disagrees with Ripser-based H0 on the moderation result, the topological measurement is method-dependent
+
+---
+
 ### Architecture Details (Historical)
 
 #### ResNet-18 (`exp01`)

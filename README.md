@@ -145,7 +145,27 @@ data/             Datasets (gitignored, auto-downloaded)
 
 **Forgetting:** Naive sequential training, EWC (Kirkpatrick et al., 2017), and cosine LR decay. Retention measured at 8 intervals (steps 10 through 5,000).
 
-**Statistics:** Spearman and Kendall correlation with Bonferroni correction (12 tests), partial correlations controlling for parameter count, WRN within-ladder analysis, slice robustness diagnostics. Leave-one-architecture-out Ridge regression with nested alpha selection, permutation tests (1,000 shuffles), and matched-dimensionality null controls.
+**Statistics:** Spearman and Kendall correlation with Bonferroni correction (12 tests), partial correlations controlling for parameter count, WRN within-ladder analysis, slice robustness diagnostics. Leave-one-architecture-out Ridge regression with nested alpha selection, permutation tests (1,000 shuffles), and matched-dimensionality null controls. Pooled interaction model (Phase 6) with OLS, clustered bootstrap (5,000 iterations, 19 architecture blocks), and within-dataset permutation tests.
+
+## Proposed Mechanism
+
+We propose the **basin fragmentation hypothesis**: H0 counts connected components in the loss landscape's sublevel set filtration. A high H0 indicates many disconnected basins. EWC penalizes parameter drift using Fisher-weighted curvature, which is most effective when naive training would otherwise push parameters across basin boundaries. On fragmented landscapes (high H0), EWC prevents inter-basin drift; on smooth landscapes (low H0), there is only one broad basin and EWC provides little additional benefit.
+
+This is consistent with H0 predicting EWC benefit on CIFAR-100 and RESISC-45 (where EWC produces measurable variance) but not CUB-200 (where fine-grained discrimination may create forgetting through feature-level interference rather than parameter-level basin drift). The WRN width ladder supports this: H0 decreases perfectly with width (rho = -1.0) across all three datasets, consistent with wider networks having smoother, less fragmented landscapes.
+
+This mechanism is tentative and requires causal testing (e.g., landscape-aware regularization intervention).
+
+## Limitations
+
+- **19 architectures:** Moderate sample size. The WRN width ladder controls for architecture family but has limited degrees of freedom.
+- **One mitigation method:** Only EWC tested. If the H0-benefit signal does not generalize to Synaptic Intelligence or PackNet, the finding is EWC-specific.
+- **2D projections:** Topology computed on 2D landscape cross-sections, not the full high-dimensional landscape. 5 slices mitigate but do not eliminate sampling variance.
+- **Borderline p-values:** EWC moderation p = 0.046, forgetting ret@100 p = 0.035. CUB-200 ret@10 p = 0.037 does not survive Bonferroni.
+- **EWC benefit finding is exploratory:** The shift from "topology predicts forgetting" to "topology predicts mitigation benefit" emerged from the data. Phase 6 should be interpreted as discovery, not confirmation.
+
+## Analysis Path Transparency
+
+The original hypothesis targeted topology as a direct predictor of forgetting. CIFAR-100 was run first (params dominate, topology null). CUB-200 was run second (topology rescues prediction, p = 0.037). RESISC-45 was run third and returned a null for topology (p = 0.566), falsifying the simpler "hard tasks" framing. The EWC benefit analysis was computed as part of Phase 4 diagnostics, not the original target. The Phase 6 pooled interaction model was designed post hoc to formalize cross-dataset moderation. We report this path transparently: the EWC moderation finding requires pre-registered replication.
 
 ## References
 
