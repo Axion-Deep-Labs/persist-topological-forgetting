@@ -429,13 +429,31 @@ This mechanism is tentative. We do not claim to have proven that basin fragmenta
 
 ---
 
-### Next Steps
-- **Pooled interaction model** (retention ~ params + H0 + dataset + H0 x dataset)
-- **Multi-seed runs** for confidence intervals on the CUB-200 ret@10 finding
-- **Scale to 30+ architectures** for more statistical power (target: p < 0.01)
-- **Characterize what makes CUB-200 special** (fine-grained discrimination regime)
-- **Prototype forgetting risk API** (commercial angle: mitigation recommendation)
-- **ArXiv publication + NeurIPS/ICML submission**
+### Preliminary Complete — Phase I Scale Validation Roadmap
+
+The preliminary proof-of-concept ("petri dish") established that the topological signal exists on small-to-medium models (0.3M-44.7M parameters). Phase I addresses the fundamental open research questions that require supercomputer resources.
+
+**Phase I Research Questions (requires supercomputer allocation):**
+- **Scale survival:** Does the topological signal persist on 100M-7B+ parameter models, or is it a small-model artifact? This is an empirically open question — nobody knows.
+- **PH tractability at scale:** Ripser complexity is O(n^3) in simplex count. Computing PH on large parameter spaces may require novel distributed algorithms (itself a research contribution).
+- **Subsampling fidelity:** Do 5 random 2D slices capture relevant topology when parameter dimensionality is 10^8-10^10? There may be a phase transition where subsampling destroys the signal.
+- **Higher-dimensional homology:** H2, H3 may carry critical information but are exponentially more expensive to compute.
+- **Long task sequences:** 10-100+ sequential tasks (vs current 2-task). Does topology at task boundary N predict forgetting at task boundary N+47?
+- **Multiple CL methods:** SI, PackNet, replay, adapter-based methods. Does topology predict which method works best for a given landscape?
+- **Large-scale datasets:** ImageNet (1.4M images), NLP tasks, medical imaging. Current datasets are all small-image.
+- **Foundation model fine-tuning:** Predict catastrophic forgetting when fine-tuning LLMs on sequential downstream tasks. Commercial killer app requiring thousands of GPU-hours per run.
+- **50-100+ architectures:** Statistical power for robust claims that survive strict multiple-comparison correction.
+
+**Genuine failure modes:**
+- Topological signal vanishes at scale (small-model artifact)
+- PH computation scales worse than training itself (impractical tool)
+- Long task sequences show chaotic topology evolution (defeats prediction)
+- Signal is EWC-specific and does not generalize to other CL methods
+- Subsampling loses fidelity in high-dimensional parameter spaces
+
+**Publication:**
+- ArXiv paper drafted (preliminary results), pending review before upload
+- Phase I results would target NeurIPS/ICML main conference
 
 ### Known Issues
 - **CUB-200 p=0.037 does not survive Bonferroni** across 3 datasets (adjusted alpha = 0.0167)

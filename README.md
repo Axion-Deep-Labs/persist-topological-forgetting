@@ -4,9 +4,13 @@
 
 Can the topology of a loss landscape predict how well a model resists catastrophic forgetting?
 
-We compute persistent homology on 2D cross-sections of loss landscapes across 19 architectures and 3 datasets (57 total configurations), then test whether topological features predict knowledge retention under sequential training. A WRN width ladder isolates topology from scale.
+## Project Status: Preliminary Proof-of-Concept Complete — Phase I Requires Supercomputer
 
-## Key Findings
+**Preliminary work** (complete) established proof-of-concept on small-to-medium models (0.3M-44.7M parameters) across 3 small-image datasets. This is the petri dish: we computed persistent homology on 2D cross-sections of loss landscapes across 19 architectures and 57 total configurations, demonstrating that topological features correlate with forgetting dynamics and mitigation benefit at this scale.
+
+**Phase I** (planned, requires HPC/supercomputer) will test whether these signals survive at production scale: 100M-7B+ parameter models, large-scale datasets (ImageNet, NLP), long task sequences (10-100+ tasks), and multiple continual learning methods. This is where the real research begins — the preliminary results may not generalize, and computing persistent homology on large weight spaces introduces fundamental computational barriers (superpolynomial complexity) that require novel distributed algorithms.
+
+## Preliminary Findings (Small-Scale Proof-of-Concept)
 
 **1. Topology rescues forgetting prediction on fine-grained tasks.**
 On CUB-200 (200 bird species), parameter count alone predicts retention in the *wrong direction* (rho = -0.92). Adding topological features rescues the prediction (permutation p = 0.037, MAE reduction 17.5%). This finding does not survive Bonferroni correction across 3 datasets (adjusted alpha = 0.0167), so we report it as suggestive.
@@ -17,7 +21,7 @@ On RESISC-45 (satellite scenes, also hard), topology adds no predictive value (p
 **3. Topology predicts mitigation benefit.**
 The most stable cross-dataset signal: H0 (connected components) predicts how much EWC regularization helps, replicating across CIFAR-100 (rho = 0.76, p = 0.0002) and RESISC-45 (rho = 0.86, p = 2.4e-6). Loss landscape connectivity is a mitigation sensitivity marker.
 
-## Results
+## Preliminary Results
 
 ### Cross-Dataset Predictive Model (Phase 5, LOAO Ridge Regression)
 
@@ -68,12 +72,35 @@ Per-dataset partial effects (95% clustered bootstrap CIs):
 
 **Bottom line:** Dataset significantly moderates the topology-EWC benefit relationship (p=0.046). H0 predicts mitigation benefit on CIFAR-100 and RESISC-45 (CIs exclude zero) but not CUB-200. For forgetting, H0's effect is concentrated on CUB-200 (CI excludes zero).
 
-## Status
+## Preliminary Status (Complete)
 
-- **CIFAR-100:** 19/19 architectures, Phases 1-5 complete
-- **CUB-200-2011:** 19/19 architectures, Phases 1-5 complete
-- **RESISC-45:** 19/19 architectures, Phases 1-5 complete
+- **CIFAR-100:** 19/19 architectures, Phases 1-6 complete
+- **CUB-200-2011:** 19/19 architectures, Phases 1-6 complete
+- **RESISC-45:** 19/19 architectures, Phases 1-6 complete
 - **57 of 57 total configurations complete**
+
+## Phase I Roadmap (Planned — Requires Supercomputer)
+
+The preliminary work demonstrated topological signal on small models. Phase I addresses the fundamental open questions that require HPC resources:
+
+| Challenge | Preliminary (Done) | Phase I Target | Why It Matters |
+|-----------|-------------------|----------------|----------------|
+| Model scale | 0.3M-44.7M params | 100M-7B+ params | Signal may vanish at production scale |
+| PH computation | 5 random 2D slices | Dense sampling, distributed PH | Subsampling may lose fidelity in high dimensions |
+| Higher homology | H0, H1 only | H0, H1, H2, H3 | Higher-dim features exponentially expensive |
+| Task sequences | 2-task (A then B) | 10-100+ sequential tasks | Real CL involves long curricula |
+| CL methods | EWC only | SI, PackNet, replay, adapters | Current finding may be EWC-specific |
+| Datasets | 3 small-image (32x32) | ImageNet, NLP, medical | Domain generalization unknown |
+| Architectures | 19 (n too small for Bonferroni) | 50-100+ | Statistical power for robust claims |
+| Foundation models | None | LLM/ViT-L fine-tuning | Commercial killer app |
+
+**Compute requirements:** Phase I requires HPC/supercomputer allocation (NSF ACCESS or equivalent). A single topology extraction on a 7B-parameter model requires thousands of GPU-hours. Scaling Ripser beyond ~50M sampled points is an open computational problem (O(n^3) in simplex count). Novel distributed PH algorithms may be required as a Phase I research contribution.
+
+**Genuine failure modes:**
+- The topological signal may vanish at scale (small-model artifact)
+- PH subsampling may lose fidelity in high-dimensional parameter spaces
+- Long task sequences may show chaotic topology evolution defeating prediction
+- Computational cost of PH may scale worse than training itself, making the tool impractical
 
 ## Setup
 
@@ -155,13 +182,17 @@ This is consistent with H0 predicting EWC benefit on CIFAR-100 and RESISC-45 (wh
 
 This mechanism is tentative and requires causal testing (e.g., landscape-aware regularization intervention).
 
-## Limitations
+## Limitations (Preliminary Work)
 
-- **19 architectures:** Moderate sample size. The WRN width ladder controls for architecture family but has limited degrees of freedom.
+- **Small-scale models only:** All architectures are under 45M parameters. Production models are 100M-7B+. Whether topology is informative at that scale is genuinely unknown.
+- **19 architectures:** Moderate sample size. The WRN width ladder controls for architecture family but has limited degrees of freedom. 50-100+ architectures needed for robust claims.
 - **One mitigation method:** Only EWC tested. If the H0-benefit signal does not generalize to Synaptic Intelligence or PackNet, the finding is EWC-specific.
-- **2D projections:** Topology computed on 2D landscape cross-sections, not the full high-dimensional landscape. 5 slices mitigate but do not eliminate sampling variance.
+- **2-task sequences only:** Real continual learning involves 10-100+ tasks. Topology-forgetting dynamics over long sequences are entirely unexplored.
+- **2D projections:** Topology computed on 2D landscape cross-sections, not the full high-dimensional landscape. 5 slices mitigate but do not eliminate sampling variance. At production scale, slice fidelity is an open question.
+- **Small-image datasets only:** All images resized to 32x32. Whether the signal holds on ImageNet, NLP tasks, or medical imaging is unknown.
 - **Borderline p-values:** EWC moderation p = 0.046, forgetting ret@100 p = 0.035. CUB-200 ret@10 p = 0.037 does not survive Bonferroni.
 - **EWC benefit finding is exploratory:** The shift from "topology predicts forgetting" to "topology predicts mitigation benefit" emerged from the data. Phase 6 should be interpreted as discovery, not confirmation.
+- **PH computational scaling unknown:** Ripser complexity is O(n^3) in simplex count. Whether PH extraction remains tractable on 100M+ parameter landscapes, or whether novel algorithms are required, is an open computational research question.
 
 ## Analysis Path Transparency
 
