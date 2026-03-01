@@ -451,9 +451,31 @@ The preliminary proof-of-concept ("petri dish") established that the topological
 - Signal is EWC-specific and does not generalize to other CL methods
 - Subsampling loses fidelity in high-dimensional parameter spaces
 
+**CL methods to test in Phase I (priority order):**
+- **Synaptic Intelligence (SI):** Regularization-based like EWC but tracks weight importance during training instead of after. First method to test because if SI also shows the H0 correlation, the finding generalizes to regularization-based methods broadly, not just EWC's Fisher information.
+- **PackNet:** Prunes and freezes weights after Task A, gives Task B only leftover capacity. Hard partitioning, no penalty. If H0 predicts PackNet benefit, the finding is deeper than regularization.
+- **Replay:** Saves a buffer of Task A examples and mixes them into Task B training. Mechanically unrelated to landscape geometry. If H0 still predicts replay benefit, basin fragmentation may be the wrong explanation even if the correlation is real.
+- **Adapters:** Freezes pretrained weights entirely, adds small trainable modules per task. Different question: does topology predict adapter efficiency?
+
 **Publication:**
 - ArXiv paper drafted (preliminary results), pending review before upload
 - Phase I results would target NeurIPS/ICML main conference
+
+### Phase II Vision (Contingent on Phase I Success)
+
+**Goal:** Build a practical tool that prevents catastrophic forgetting using topology as guidance.
+
+Phase I answers "is this real at scale?" If yes, Phase II turns the diagnostic into an intervention.
+
+**Core idea:** Given a pretrained model and a sequence of tasks, run the topology diagnostic on the loss landscape, and use the result to automatically select and configure the right mitigation strategy. A topology-guided continual learning system that prevents forgetting rather than just predicting it.
+
+**Possible directions:**
+- **Topology-aware regularization:** Use H0 to set EWC/SI penalty strength automatically. Fragmented landscape gets stronger penalty.
+- **Method selection:** Topology profile recommends which CL method to apply (regularization vs replay vs architectural) based on landscape shape.
+- **Landscape-aware training:** Modify the training process itself to reshape the landscape before sequential learning, reducing fragmentation proactively.
+- **Automated CL pipeline:** End-to-end system where practitioners provide a model and task sequence, and the tool handles mitigation selection, tuning, and monitoring.
+
+**Open question for Dr. Cao:** Should Phase II prioritize building the tool (engineering) or formalizing the theory first (proving basin fragmentation mathematically)?
 
 ### Known Issues
 - **CUB-200 p=0.037 does not survive Bonferroni** across 3 datasets (adjusted alpha = 0.0167)
