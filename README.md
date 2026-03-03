@@ -212,3 +212,10 @@ The original hypothesis targeted topology as a direct predictor of forgetting. C
 ## License
 
 MIT
+
+## Related Projects
+
+- [SDI](https://github.com/Axion-Deep-Labs/structural-divergence-index) — Structural Divergence Index for model governance
+- [DRIFT](https://github.com/Axion-Deep-Labs/drift-quantum-degradation) — Quantum circuit stability under iteration
+- [PHI](https://github.com/Axion-Deep-Labs/phi-integrated-information) — Integrated information across architectures
+- [GENESIS](https://github.com/Axion-Deep-Labs/genesis-capacity-scaling) — Information capacity scaling laws
