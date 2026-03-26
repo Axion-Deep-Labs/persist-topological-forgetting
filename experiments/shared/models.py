@@ -10,6 +10,16 @@ from torchvision.models import (
     resnet18, resnet50, densenet121, efficientnet_b0,
     vgg16_bn, convnext_tiny, mobilenet_v3_small,
     shufflenet_v2_x1_0, regnet_y_400mf,
+    # Phase I: 224x224 pretrained models
+    resnet101, ResNet101_Weights,
+    convnext_small, ConvNeXt_Small_Weights,
+    convnext_base, ConvNeXt_Base_Weights,
+    convnext_large, ConvNeXt_Large_Weights,
+    efficientnet_b5, EfficientNet_B5_Weights,
+    densenet201, DenseNet201_Weights,
+    vit_b_16, ViT_B_16_Weights,
+    vit_l_16, ViT_L_16_Weights,
+    vit_h_14, ViT_H_14_Weights,
 )
 
 
@@ -552,6 +562,166 @@ def get_regnet_y400mf(num_classes: int = 50, pretrained: bool = False) -> nn.Mod
     return RegNetY400MFWrapper(num_classes=num_classes)
 
 
+# ─── Phase I: 224x224 Pretrained Models (100M-1B params) ───
+
+class ResNet101_224(nn.Module):
+    """ResNet-101 for 224x224 input with optional pretrained weights. ~44.5M params."""
+    def __init__(self, num_classes=50, pretrained=False):
+        super().__init__()
+        weights = ResNet101_Weights.IMAGENET1K_V2 if pretrained else None
+        base = resnet101(weights=weights)
+        self.features = nn.Sequential(
+            base.conv1, base.bn1, base.relu, base.maxpool,
+            base.layer1, base.layer2, base.layer3, base.layer4,
+        )
+        self.avgpool = base.avgpool
+        self.fc = nn.Linear(base.fc.in_features, num_classes)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        return self.fc(x)
+
+
+def get_resnet101_224(num_classes: int = 50, pretrained: bool = False) -> nn.Module:
+    """ResNet-101 for 224x224 input."""
+    return ResNet101_224(num_classes=num_classes, pretrained=pretrained)
+
+
+class ConvNeXt224(nn.Module):
+    """ConvNeXt wrapper for 224x224 input with pretrained weights.
+
+    Uses nn.Sequential .fc with LayerNorm2d + Flatten + Linear so that
+    phase3 classifier expansion can find and replace the last Linear in-place.
+    """
+    def __init__(self, variant, weights, num_classes=50, pretrained=False):
+        super().__init__()
+        base = variant(weights=weights if pretrained else None)
+        self.features = base.features
+        self.avgpool = base.avgpool
+        # Preserve LayerNorm2d and Flatten from original classifier
+        self.fc = nn.Sequential(
+            base.classifier[0],  # LayerNorm2d
+            base.classifier[1],  # Flatten
+            nn.Linear(base.classifier[2].in_features, num_classes),
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.avgpool(x)
+        return self.fc(x)
+
+
+def get_convnext_small_224(num_classes: int = 50, pretrained: bool = False) -> nn.Module:
+    """ConvNeXt-Small for 224x224 (~50M params)."""
+    return ConvNeXt224(convnext_small, ConvNeXt_Small_Weights.IMAGENET1K_V1,
+                       num_classes=num_classes, pretrained=pretrained)
+
+
+def get_convnext_base_224(num_classes: int = 50, pretrained: bool = False) -> nn.Module:
+    """ConvNeXt-Base for 224x224 (~89M params)."""
+    return ConvNeXt224(convnext_base, ConvNeXt_Base_Weights.IMAGENET1K_V1,
+                       num_classes=num_classes, pretrained=pretrained)
+
+
+def get_convnext_large_224(num_classes: int = 50, pretrained: bool = False) -> nn.Module:
+    """ConvNeXt-Large for 224x224 (~198M params)."""
+    return ConvNeXt224(convnext_large, ConvNeXt_Large_Weights.IMAGENET1K_V1,
+                       num_classes=num_classes, pretrained=pretrained)
+
+
+class EfficientNetB5_224(nn.Module):
+    """EfficientNet-B5 for 224x224 with pretrained weights. ~30M params.
+
+    Uses nn.Sequential .fc with Dropout + Linear for phase3 compatibility.
+    """
+    def __init__(self, num_classes=50, pretrained=False):
+        super().__init__()
+        weights = EfficientNet_B5_Weights.IMAGENET1K_V1 if pretrained else None
+        base = efficientnet_b5(weights=weights)
+        self.features = base.features
+        self.avgpool = base.avgpool
+        self.fc = nn.Sequential(
+            nn.Dropout(p=0.4),
+            nn.Linear(base.classifier[1].in_features, num_classes),
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.avgpool(x)
+        x = x.flatten(1)
+        return self.fc(x)
+
+
+def get_efficientnet_b5_224(num_classes: int = 50, pretrained: bool = False) -> nn.Module:
+    """EfficientNet-B5 for 224x224."""
+    return EfficientNetB5_224(num_classes=num_classes, pretrained=pretrained)
+
+
+class DenseNet201_224(nn.Module):
+    """DenseNet-201 for 224x224 with pretrained weights. ~20M params."""
+    def __init__(self, num_classes=50, pretrained=False):
+        super().__init__()
+        weights = DenseNet201_Weights.IMAGENET1K_V1 if pretrained else None
+        base = densenet201(weights=weights)
+        self.features = base.features
+        self.fc = nn.Linear(base.classifier.in_features, num_classes)
+
+    def forward(self, x):
+        x = self.features(x)
+        out = torch.relu(x)
+        out = nn.functional.adaptive_avg_pool2d(out, 1)
+        out = out.view(out.size(0), -1)
+        return self.fc(out)
+
+
+def get_densenet201_224(num_classes: int = 50, pretrained: bool = False) -> nn.Module:
+    """DenseNet-201 for 224x224."""
+    return DenseNet201_224(num_classes=num_classes, pretrained=pretrained)
+
+
+class ViT224(nn.Module):
+    """Vision Transformer wrapper for 224x224 with pretrained weights.
+
+    Removes the original classification head and exposes .head (nn.Linear)
+    for phase3 classifier expansion compatibility.
+    """
+    def __init__(self, variant, weights, embed_dim, num_classes=50, pretrained=False):
+        super().__init__()
+        base = variant(weights=weights if pretrained else None)
+        base.heads.head = nn.Identity()
+        self.backbone = base
+        self.head = nn.Linear(embed_dim, num_classes)
+
+    def forward(self, x):
+        features = self.backbone(x)
+        return self.head(features)
+
+
+def get_vit_b_16_224(num_classes: int = 50, pretrained: bool = False) -> nn.Module:
+    """ViT-B/16 for 224x224 (~87M params)."""
+    return ViT224(vit_b_16, ViT_B_16_Weights.IMAGENET1K_V1, 768,
+                  num_classes=num_classes, pretrained=pretrained)
+
+
+def get_vit_l_16_224(num_classes: int = 50, pretrained: bool = False) -> nn.Module:
+    """ViT-L/16 for 224x224 (~304M params)."""
+    return ViT224(vit_l_16, ViT_L_16_Weights.IMAGENET1K_V1, 1024,
+                  num_classes=num_classes, pretrained=pretrained)
+
+
+def get_vit_h_14_224(num_classes: int = 50, pretrained: bool = False) -> nn.Module:
+    """ViT-H/14 for 224x224 (~632M params)."""
+    return ViT224(vit_h_14, ViT_H_14_Weights.IMAGENET1K_SWAG_E2E_V1, 1280,
+                  num_classes=num_classes, pretrained=pretrained)
+
+
+def get_wrn4010(num_classes: int = 50, pretrained: bool = False) -> nn.Module:
+    """WideResNet-40-10 (~56M params). Deeper + wider than WRN-28-10."""
+    return WideResNet(depth=40, widen_factor=10, num_classes=num_classes)
+
+
 def get_model(architecture: str, num_classes: int = 50, **kwargs) -> nn.Module:
     """Factory function for model creation."""
     models = {
@@ -574,6 +744,17 @@ def get_model(architecture: str, num_classes: int = 50, **kwargs) -> nn.Module:
         "vit_tiny": get_vit_tiny,
         "shufflenet_v2": get_shufflenet_v2,
         "regnet_y400mf": get_regnet_y400mf,
+        # Phase I: 224x224 pretrained
+        "resnet101_224": get_resnet101_224,
+        "convnext_small_224": get_convnext_small_224,
+        "convnext_base_224": get_convnext_base_224,
+        "convnext_large_224": get_convnext_large_224,
+        "efficientnet_b5_224": get_efficientnet_b5_224,
+        "densenet201_224": get_densenet201_224,
+        "vit_b_16_224": get_vit_b_16_224,
+        "vit_l_16_224": get_vit_l_16_224,
+        "vit_h_14_224": get_vit_h_14_224,
+        "wrn4010": get_wrn4010,
     }
     if architecture not in models:
         raise ValueError(f"Unknown architecture: {architecture}. Available: {list(models.keys())}")

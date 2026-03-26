@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EXP-04: Grokking Topology — Pilot Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #e6edf3; --muted: #7d8590; --accent: #f0883e;
+    --green: #3fb950; --red: #f85149; --blue: #58a6ff; --purple: #bc8cff;
+    --yellow: #d29922;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; }
+  .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; gap: 16px; }
+  .header h1 { font-size: 18px; font-weight: 600; }
+  .header .tag { background: var(--accent); color: #000; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 12px; }
+  .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+
+  /* Pilot Gate Banner */
+  .gate-banner { padding: 16px 20px; border-radius: 8px; margin-bottom: 24px; border: 1px solid; display: flex; align-items: center; gap: 12px; }
+  .gate-banner.pending { background: #d299221a; border-color: var(--yellow); }
+  .gate-banner.passed { background: #3fb9501a; border-color: var(--green); }
+  .gate-banner.failed { background: #f851491a; border-color: var(--red); }
+  .gate-banner .icon { font-size: 20px; }
+  .gate-banner .label { font-weight: 600; }
+  .gate-banner .detail { color: var(--muted); font-size: 13px; }
+
+  /* Seed Cards */
+  .seed-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; margin-bottom: 24px; }
+  .seed-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; cursor: pointer; transition: border-color 0.2s; }
+  .seed-card:hover, .seed-card.active { border-color: var(--accent); }
+  .seed-card .name { font-weight: 600; margin-bottom: 6px; }
+  .seed-card .status { font-size: 12px; color: var(--muted); }
+  .seed-card .status span { margin-right: 8px; }
+  .seed-card .onset { font-size: 12px; margin-top: 6px; }
+  .seed-card .onset.grokked { color: var(--green); }
+  .seed-card .onset.not-grokked { color: var(--red); }
+
+  /* Charts */
+  .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px; }
+  .chart-box { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .chart-box h3 { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: var(--muted); }
+  .chart-box canvas { width: 100% !important; height: 300px !important; }
+
+  /* Full-width chart */
+  .chart-full { grid-column: 1 / -1; }
+
+  /* System Monitor */
+  .sys-bar { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
+  .sys-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; min-width: 180px; flex: 1; }
+  .sys-card .sys-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+  .sys-card .sys-value { font-size: 20px; font-weight: 700; }
+  .sys-card .sys-detail { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .sys-bar-meter { height: 4px; border-radius: 2px; background: var(--border); margin-top: 6px; overflow: hidden; }
+  .sys-bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
+  .temp-ok { color: var(--green); }
+  .temp-warm { color: var(--yellow); }
+  .temp-hot { color: var(--red); }
+
+  /* Overview table */
+  .overview-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  .overview-table th, .overview-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .overview-table th { color: var(--muted); font-weight: 600; }
+
+  .refresh-btn { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .refresh-btn:hover { border-color: var(--accent); }
+
+  @media (max-width: 900px) { .chart-grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>EXP-04: Topological Dynamics of Grokking</h1>
+  <span class="tag">PILOT</span>
+  <div style="flex:1"></div>
+  <button class="refresh-btn" onclick="refresh()">Refresh</button>
+</div>
+
+<div class="container">
+  <!-- Pilot Gate -->
+  <div id="gate-banner" class="gate-banner pending">
+    <span class="icon">&#9679;</span>
+    <div>
+      <div class="label">Pilot Gate: Waiting for data...</div>
+      <div class="detail">Need consistent PH direction in >= 3/5 seeds before onset</div>
+    </div>
+  </div>
+
+  <!-- System Monitor -->
+  <div id="sys-bar" class="sys-bar">
+    <div class="sys-card">
+      <div class="sys-label">GPU</div>
+      <div class="sys-value" id="sys-gpu-name">—</div>
+      <div class="sys-detail"><span id="sys-gpu-util">—</span>% util &middot; <span id="sys-gpu-mem">—</span> MB</div>
+      <div class="sys-bar-meter"><div class="sys-bar-fill" id="sys-gpu-bar" style="width:0;background:var(--accent)"></div></div>
+    </div>
+    <div class="sys-card">
+      <div class="sys-label">GPU Temp</div>
+      <div class="sys-value" id="sys-gpu-temp">—</div>
+      <div class="sys-detail"><span id="sys-gpu-power">—</span>W / <span id="sys-gpu-power-limit">—</span>W</div>
+    </div>
+    <div class="sys-card">
+      <div class="sys-label">CPU</div>
+      <div class="sys-value" id="sys-cpu-pct">—</div>
+      <div class="sys-detail"><span id="sys-cpu-cores">—</span> cores &middot; <span id="sys-cpu-freq">—</span> MHz</div>
+      <div class="sys-bar-meter"><div class="sys-bar-fill" id="sys-cpu-bar" style="width:0;background:var(--blue)"></div></div>
+    </div>
+    <div class="sys-card">
+      <div class="sys-label">CPU Temp</div>
+      <div class="sys-value" id="sys-cpu-temp">—</div>
+      <div class="sys-detail">Ryzen 9 9900X</div>
+    </div>
+    <div class="sys-card">
+      <div class="sys-label">RAM</div>
+      <div class="sys-value" id="sys-ram-pct">—</div>
+      <div class="sys-detail"><span id="sys-ram-used">—</span> / <span id="sys-ram-total">—</span> GB</div>
+      <div class="sys-bar-meter"><div class="sys-bar-fill" id="sys-ram-bar" style="width:0;background:var(--purple)"></div></div>
+    </div>
+  </div>
+
+  <!-- Seed Cards -->
+  <div id="seed-grid" class="seed-grid"></div>
+
+  <!-- Charts (shown when a seed is selected) -->
+  <div id="charts-section" style="display:none">
+    <div class="chart-grid">
+      <div class="chart-box">
+        <h3>Training Curves</h3>
+        <canvas id="chart-training"></canvas>
+      </div>
+      <div class="chart-box">
+        <h3>H0 Feature Count (Primary Endpoint)</h3>
+        <canvas id="chart-h0-count"></canvas>
+      </div>
+      <div class="chart-box">
+        <h3>PH Statistics</h3>
+        <canvas id="chart-topo"></canvas>
+      </div>
+      <div class="chart-box">
+        <h3>Baseline Metrics</h3>
+        <canvas id="chart-baselines"></canvas>
+      </div>
+      <div class="chart-box chart-full">
+        <h3>All Predictors (Normalized) vs Grokking Onset</h3>
+        <canvas id="chart-all"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cross-Seed Overview -->
+  <div id="overview-section" class="chart-box" style="margin-top: 24px;">
+    <h3>Cross-Seed Overview</h3>
+    <table class="overview-table">
+      <thead>
+        <tr>
+          <th>Seed</th><th>Grokked?</th><th>Onset Step</th>
+          <th>Final Train Acc</th><th>Final Test Acc</th><th>H0 Trend Pre-Onset</th>
+        </tr>
+      </thead>
+      <tbody id="overview-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const charts = {};
+let currentSeed = null;
+
+// Chart.js defaults
+Chart.defaults.color = '#7d8590';
+Chart.defaults.borderColor = '#30363d';
+Chart.defaults.font.size = 11;
+
+function createChart(id, config) {
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart(document.getElementById(id), config);
+  return charts[id];
+}
+
+async function refresh() {
+  await loadSeeds();
+  await loadOverview();
+  if (currentSeed) await loadSeedData(currentSeed);
+}
+
+async function loadSeeds() {
+  const res = await fetch('/api/seeds');
+  const seeds = await res.json();
+  const grid = document.getElementById('seed-grid');
+  grid.innerHTML = '';
+
+  for (const s of seeds) {
+    const card = document.createElement('div');
+    card.className = 'seed-card' + (currentSeed === s.name ? ' active' : '');
+    card.onclick = () => { currentSeed = s.name; loadSeedData(s.name); loadSeeds(); };
+
+    const checks = [
+      s.has_training ? '&#10003; train' : '&#10007; train',
+      s.has_topology ? '&#10003; topo' : '&#10007; topo',
+      s.has_baselines ? '&#10003; baselines' : '&#10007; baselines',
+    ];
+
+    card.innerHTML = `
+      <div class="name">${s.name}</div>
+      <div class="status">${checks.map(c => '<span>' + c + '</span>').join('')}</div>
+      <div class="status">${s.n_checkpoints} checkpoints</div>
+    `;
+    grid.appendChild(card);
+  }
+}
+
+async function loadOverview() {
+  const res = await fetch('/api/overview');
+  const data = await res.json();
+
+  // Gate banner
+  const banner = document.getElementById('gate-banner');
+  const gate = data.pilot_gate;
+  if (!gate || data.seeds.length === 0) {
+    banner.className = 'gate-banner pending';
+    banner.innerHTML = '<span class="icon">&#9679;</span><div><div class="label">Pilot Gate: Waiting for data...</div><div class="detail">No results yet</div></div>';
+  } else if (gate.passed) {
+    banner.className = 'gate-banner passed';
+    banner.innerHTML = `<span class="icon">&#10003;</span><div><div class="label">Pilot Gate: PASSED</div><div class="detail">${gate.consistent_seeds}/5 seeds show consistent ${gate.direction} H0 before onset. Proceed to full study.</div></div>`;
+  } else {
+    const total = data.seeds.filter(s => s.grokked).length;
+    banner.className = 'gate-banner pending';
+    banner.innerHTML = `<span class="icon">&#9679;</span><div><div class="label">Pilot Gate: ${gate.consistent_seeds}/${gate.required} consistent seeds</div><div class="detail">${total}/5 seeds have grokked. Need >= 3 with consistent H0 direction.</div></div>`;
+  }
+
+  // Overview table
+  const tbody = document.getElementById('overview-tbody');
+  tbody.innerHTML = '';
+  for (const s of data.seeds) {
+    const tr = document.createElement('tr');
+    const grokked = s.grokked ? '<span style="color:var(--green)">Yes</span>' : '<span style="color:var(--red)">No</span>';
+    const trend = s.h0_trend_pre_onset || 'N/A';
+    const trendColor = trend === 'increasing' || trend === 'decreasing' ? 'var(--green)' : 'var(--muted)';
+    tr.innerHTML = `
+      <td>${s.name}</td>
+      <td>${grokked}</td>
+      <td>${s.grokking_onset ?? '—'}</td>
+      <td>${s.final_train_acc != null ? (s.final_train_acc * 100).toFixed(1) + '%' : '—'}</td>
+      <td>${s.final_test_acc != null ? (s.final_test_acc * 100).toFixed(1) + '%' : '—'}</td>
+      <td style="color:${trendColor}">${trend}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+async function loadSeedData(seedName) {
+  const res = await fetch(`/api/seed/${seedName}`);
+  const data = await res.json();
+  if (data.error) return;
+
+  document.getElementById('charts-section').style.display = 'block';
+  const onset = data.grokking_onset;
+
+  // Onset annotation plugin
+  const onsetLine = onset != null ? {
+    type: 'line', borderColor: '#f85149', borderWidth: 2, borderDash: [6, 4],
+    label: { display: true, content: 'Grokking Onset', color: '#f85149', font: { size: 11 }, position: 'start' },
+    scaleID: 'x', value: onset,
+  } : null;
+
+  const annotationPlugin = onsetLine ? { annotation: { annotations: { onset: onsetLine } } } : {};
+
+  // 1. Training curves
+  if (data.training) {
+    const steps = data.training.map(m => m.step);
+    createChart('chart-training', {
+      type: 'line',
+      data: {
+        labels: steps,
+        datasets: [
+          { label: 'Train Acc', data: data.training.map(m => m.train_acc), borderColor: '#58a6ff', borderWidth: 1.5, pointRadius: 0, tension: 0.1 },
+          { label: 'Test Acc', data: data.training.map(m => m.test_acc), borderColor: '#3fb950', borderWidth: 1.5, pointRadius: 0, tension: 0.1 },
+          { label: 'Train Loss', data: data.training.map(m => m.train_loss), borderColor: '#f0883e', borderWidth: 1, pointRadius: 0, borderDash: [4,2], yAxisID: 'y1' },
+          { label: 'Test Loss', data: data.training.map(m => m.test_loss), borderColor: '#f85149', borderWidth: 1, pointRadius: 0, borderDash: [4,2], yAxisID: 'y1' },
+        ]
+      },
+      options: {
+        responsive: true, plugins: { ...annotationPlugin },
+        scales: {
+          x: { title: { display: true, text: 'Step' } },
+          y: { title: { display: true, text: 'Accuracy' }, min: 0, max: 1 },
+          y1: { position: 'right', title: { display: true, text: 'Loss' }, grid: { drawOnChartArea: false } }
+        }
+      },
+      plugins: [window['chartjs-plugin-annotation'] || {}]
+    });
+  }
+
+  // 2. H0 Feature Count (primary)
+  if (data.topology) {
+    const steps = data.topology.map(t => t.step);
+    const h0 = data.topology.map(t => t.h0_feature_count);
+    const h0Var = data.topology.map(t => t.slice_variance?.h0_feature_count_slice_var ?? 0);
+
+    createChart('chart-h0-count', {
+      type: 'line',
+      data: {
+        labels: steps,
+        datasets: [
+          { label: 'H0 Feature Count (avg)', data: h0, borderColor: '#f0883e', borderWidth: 2, pointRadius: 2, tension: 0.1 },
+          { label: 'Slice Variance', data: h0Var, borderColor: '#7d8590', borderWidth: 1, pointRadius: 0, borderDash: [3,3], yAxisID: 'y1' },
+        ]
+      },
+      options: {
+        responsive: true, plugins: { ...annotationPlugin },
+        scales: {
+          x: { title: { display: true, text: 'Step' } },
+          y: { title: { display: true, text: 'H0 Count' } },
+          y1: { position: 'right', title: { display: true, text: 'Variance' }, grid: { drawOnChartArea: false } }
+        }
+      }
+    });
+  }
+
+  // 3. PH Statistics (secondary)
+  if (data.topology) {
+    const steps = data.topology.map(t => t.step);
+    createChart('chart-topo', {
+      type: 'line',
+      data: {
+        labels: steps,
+        datasets: [
+          { label: 'H0 Total Pers.', data: data.topology.map(t => t.h0_total_persistence), borderColor: '#f0883e', borderWidth: 1.5, pointRadius: 0 },
+          { label: 'H1 Total Pers.', data: data.topology.map(t => t.h1_total_persistence), borderColor: '#bc8cff', borderWidth: 1.5, pointRadius: 0 },
+          { label: 'H0 Entropy', data: data.topology.map(t => t.h0_persistence_entropy), borderColor: '#d29922', borderWidth: 1.5, pointRadius: 0, borderDash: [4,2] },
+        ]
+      },
+      options: {
+        responsive: true, plugins: { ...annotationPlugin },
+        scales: { x: { title: { display: true, text: 'Step' } }, y: { title: { display: true, text: 'Value' } } }
+      }
+    });
+  }
+
+  // 4. Baselines
+  if (data.baselines) {
+    const steps = data.baselines.map(b => b.step);
+    createChart('chart-baselines', {
+      type: 'line',
+      data: {
+        labels: steps,
+        datasets: [
+          { label: 'Commutator Defect', data: data.baselines.map(b => b.commutator_defect), borderColor: '#f85149', borderWidth: 1.5, pointRadius: 0 },
+          { label: 'Sharpness', data: data.baselines.map(b => b.sharpness), borderColor: '#58a6ff', borderWidth: 1.5, pointRadius: 0 },
+          { label: 'Weight Norm', data: data.baselines.map(b => b.weight_norm_l2), borderColor: '#3fb950', borderWidth: 1.5, pointRadius: 0 },
+          { label: 'Spectral Conc.', data: data.baselines.map(b => b.spectral_concentration), borderColor: '#bc8cff', borderWidth: 1.5, pointRadius: 0, borderDash: [4,2] },
+        ]
+      },
+      options: {
+        responsive: true, plugins: { ...annotationPlugin },
+        scales: { x: { title: { display: true, text: 'Step' } }, y: { title: { display: true, text: 'Value' } } }
+      }
+    });
+  }
+
+  // 5. All predictors normalized
+  if (data.topology && data.baselines) {
+    const topoSteps = new Set(data.topology.map(t => t.step));
+    const blSteps = new Set(data.baselines.map(b => b.step));
+    const commonSteps = [...topoSteps].filter(s => blSteps.has(s)).sort((a,b) => a - b);
+
+    function normalize(values) {
+      const valid = values.filter(v => v != null && isFinite(v));
+      if (valid.length === 0) return values;
+      const min = Math.min(...valid), max = Math.max(...valid);
+      const range = max - min || 1;
+      return values.map(v => v != null && isFinite(v) ? (v - min) / range : null);
+    }
+
+    function getAtSteps(data, steps, key) {
+      const map = {};
+      for (const d of data) map[d.step] = d[key];
+      return steps.map(s => map[s] ?? null);
+    }
+
+    const h0Count = normalize(getAtSteps(data.topology, commonSteps, 'h0_feature_count'));
+    const commutator = normalize(getAtSteps(data.baselines, commonSteps, 'commutator_defect'));
+    const sharpness = normalize(getAtSteps(data.baselines, commonSteps, 'sharpness'));
+    const weightNorm = normalize(getAtSteps(data.baselines, commonSteps, 'weight_norm_l2'));
+
+    createChart('chart-all', {
+      type: 'line',
+      data: {
+        labels: commonSteps,
+        datasets: [
+          { label: 'H0 Count (primary)', data: h0Count, borderColor: '#f0883e', borderWidth: 2.5, pointRadius: 0 },
+          { label: 'Commutator Defect', data: commutator, borderColor: '#f85149', borderWidth: 1.5, pointRadius: 0 },
+          { label: 'Sharpness', data: sharpness, borderColor: '#58a6ff', borderWidth: 1.5, pointRadius: 0, borderDash: [4,2] },
+          { label: 'Weight Norm', data: weightNorm, borderColor: '#3fb950', borderWidth: 1.5, pointRadius: 0, borderDash: [4,2] },
+        ]
+      },
+      options: {
+        responsive: true, plugins: { ...annotationPlugin },
+        scales: {
+          x: { title: { display: true, text: 'Step' } },
+          y: { title: { display: true, text: 'Normalized (0-1)' }, min: 0, max: 1 }
+        }
+      }
+    });
+  }
+}
+
+// Load annotation plugin for onset line
+const annotScript = document.createElement('script');
+annotScript.src = 'https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3';
+annotScript.onload = () => refresh();
+document.head.appendChild(annotScript);
+
+// System monitor
+async function refreshSystem() {
+  try {
+    const res = await fetch('/api/system');
+    const s = await res.json();
+
+    if (s.gpu) {
+      document.getElementById('sys-gpu-name').textContent = s.gpu.name;
+      document.getElementById('sys-gpu-util').textContent = s.gpu.util_percent;
+      document.getElementById('sys-gpu-mem').textContent = `${s.gpu.mem_used_mb} / ${s.gpu.mem_total_mb}`;
+      document.getElementById('sys-gpu-bar').style.width = s.gpu.util_percent + '%';
+
+      const temp = s.gpu.temp_c;
+      const tempEl = document.getElementById('sys-gpu-temp');
+      tempEl.textContent = temp + '°C';
+      tempEl.className = 'sys-value ' + (temp < 50 ? 'temp-ok' : temp < 70 ? 'temp-warm' : 'temp-hot');
+
+      document.getElementById('sys-gpu-power').textContent = Math.round(s.gpu.power_w);
+      document.getElementById('sys-gpu-power-limit').textContent = Math.round(s.gpu.power_limit_w);
+    }
+
+    // CPU temp (Ryzen 9 9900X: red only above 85)
+    if (s.cpu.temp_c != null) {
+      const cpuTemp = s.cpu.temp_c;
+      const cpuTempEl = document.getElementById('sys-cpu-temp');
+      cpuTempEl.textContent = cpuTemp + '°C';
+      cpuTempEl.className = 'sys-value ' + (cpuTemp < 75 ? 'temp-ok' : cpuTemp < 85 ? 'temp-warm' : 'temp-hot');
+    }
+
+    document.getElementById('sys-cpu-pct').textContent = s.cpu.percent + '%';
+    document.getElementById('sys-cpu-cores').textContent = s.cpu.count;
+    document.getElementById('sys-cpu-freq').textContent = s.cpu.freq_mhz;
+    document.getElementById('sys-cpu-bar').style.width = s.cpu.percent + '%';
+
+    document.getElementById('sys-ram-pct').textContent = s.ram.percent + '%';
+    document.getElementById('sys-ram-used').textContent = s.ram.used_gb;
+    document.getElementById('sys-ram-total').textContent = s.ram.total_gb;
+    document.getElementById('sys-ram-bar').style.width = s.ram.percent + '%';
+  } catch(e) {}
+}
+
+// Auto-refresh: system every 5s, data every 60s
+setInterval(refreshSystem, 5000);
+setInterval(refresh, 60000);
+refreshSystem();
+</script>
+</body>
+</html>

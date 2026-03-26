@@ -1,0 +1,138 @@
+\begin{thebibliography}{18}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Bauer(2021)]{bauer2021ripser}
+Ulrich Bauer.
+\newblock Ripser: Efficient computation of {V}ietoris--{R}ips persistence
+  barcodes.
+\newblock \emph{Journal of Applied and Computational Topology}, 5:\penalty0
+  391--423, 2021.
+
+\bibitem[Carlsson(2009)]{carlsson2009topology}
+Gunnar Carlsson.
+\newblock Topology and data.
+\newblock \emph{Bulletin of the American Mathematical Society}, 46\penalty0
+  (2):\penalty0 255--308, 2009.
+
+\bibitem[Cheng et~al.(2017)Cheng, Han, and Lu]{cheng2017remote}
+Gong Cheng, Junwei Han, and Xiaoqiang Lu.
+\newblock Remote sensing image scene classification: Benchmark and state of the
+  art.
+\newblock \emph{Proceedings of the IEEE}, 105\penalty0 (10):\penalty0
+  1865--1883, 2017.
+
+\bibitem[French(1999)]{french1999catastrophic}
+Robert~M. French.
+\newblock Catastrophic forgetting in connectionist networks.
+\newblock \emph{Trends in Cognitive Sciences}, 3\penalty0 (4):\penalty0
+  128--135, 1999.
+
+\bibitem[Garipov et~al.(2018)Garipov, Izmailov, Podoprikhin, Vetrov, and
+  Wilson]{garipov2018loss}
+Timur Garipov, Pavel Izmailov, Dmitrii Podoprikhin, Dmitry~P. Vetrov, and
+  Andrew~Gordon Wilson.
+\newblock Loss surfaces, mode connectivity, and fast ensembling of dnns.
+\newblock In \emph{Advances in Neural Information Processing Systems},
+  volume~31, 2018.
+
+\bibitem[Keskar et~al.(2017)Keskar, Mudigere, Nocedal, Smelyanskiy, and
+  Tang]{keskar2017on}
+Nitish~Shirish Keskar, Dheevatsa Mudigere, Jorge Nocedal, Mikhail Smelyanskiy,
+  and Ping Tak~Peter Tang.
+\newblock On large-batch training for deep learning: Generalization gap and
+  sharp minima.
+\newblock In \emph{International Conference on Learning Representations}, 2017.
+
+\bibitem[Kirkpatrick et~al.(2017)Kirkpatrick, Pascanu, Rabinowitz, Veness,
+  Desjardins, Rusu, Milan, Quan, Ramalho, Grabska-Barwinska,
+  et~al.]{kirkpatrick2017overcoming}
+James Kirkpatrick, Razvan Pascanu, Neil Rabinowitz, Joel Veness, Guillaume
+  Desjardins, Andrei~A. Rusu, Kieran Milan, John Quan, Tiago Ramalho, Agnieszka
+  Grabska-Barwinska, et~al.
+\newblock Overcoming catastrophic forgetting in neural networks.
+\newblock \emph{Proceedings of the National Academy of Sciences}, 114\penalty0
+  (13):\penalty0 3521--3526, 2017.
+
+\bibitem[Li et~al.(2018)Li, Xu, Taylor, Studer, and
+  Goldstein]{li2018visualizing}
+Hao Li, Zheng Xu, Gavin Taylor, Christoph Studer, and Tom Goldstein.
+\newblock Visualizing the loss landscape of neural nets.
+\newblock In \emph{Advances in Neural Information Processing Systems},
+  volume~31, 2018.
+
+\bibitem[Mallya \& Lazebnik(2018)Mallya and Lazebnik]{mallya2018packnet}
+Arun Mallya and Svetlana Lazebnik.
+\newblock Packnet: Adding multiple tasks to a single network by iterative
+  pruning.
+\newblock In \emph{Proceedings of the IEEE Conference on Computer Vision and
+  Pattern Recognition}, pp.\  7765--7773, 2018.
+
+\bibitem[McCloskey \& Cohen(1989)McCloskey and
+  Cohen]{mccloskey1989catastrophic}
+Michael McCloskey and Neal~J. Cohen.
+\newblock Catastrophic interference in connectionist networks: The sequential
+  learning problem.
+\newblock \emph{Psychology of Learning and Motivation}, 24:\penalty0 109--165,
+  1989.
+
+\bibitem[Naitzat et~al.(2020)Naitzat, Zhitnikov, and Lim]{naitzat2020topology}
+Gregory Naitzat, Andrey Zhitnikov, and Lek-Heng Lim.
+\newblock Topology of deep neural networks.
+\newblock \emph{Journal of Machine Learning Research}, 21\penalty0
+  (184):\penalty0 1--40, 2020.
+
+\bibitem[Ramamurthy et~al.(2019)Ramamurthy, Varshney, and
+  Mody]{ramamurthy2019topological}
+Karthikeyan~Natesan Ramamurthy, Kush~R. Varshney, and Krishnamurthy Mody.
+\newblock Topological data analysis of decision boundaries with application to
+  model selection.
+\newblock In \emph{International Conference on Machine Learning}, pp.\
+  5351--5360, 2019.
+
+\bibitem[Rebuffi et~al.(2017)Rebuffi, Kolesnikov, Sperl, and
+  Lampert]{rebuffi2017icarl}
+Sylvestre-Alvise Rebuffi, Alexander Kolesnikov, Georg Sperl, and Christoph~H.
+  Lampert.
+\newblock icarl: Incremental classifier and representation learning.
+\newblock In \emph{Proceedings of the IEEE Conference on Computer Vision and
+  Pattern Recognition}, pp.\  5533--5542, 2017.
+
+\bibitem[Rieck et~al.(2019)Rieck, Togninalli, Bock, Moor, Horn, Gumbsch, and
+  Borgwardt]{rieck2019neural}
+Bastian Rieck, Matteo Togninalli, Christian Bock, Michael Moor, Max Horn,
+  Thomas Gumbsch, and Karsten Borgwardt.
+\newblock Neural persistence: A complexity measure for deep neural networks
+  using algebraic topology.
+\newblock In \emph{International Conference on Learning Representations}, 2019.
+
+\bibitem[Rusu et~al.(2016)Rusu, Rabinowitz, Desjardins, Soyer, Kirkpatrick,
+  Kavukcuoglu, Pascanu, and Hadsell]{rusu2016progressive}
+Andrei~A. Rusu, Neil~C. Rabinowitz, Guillaume Desjardins, Hubert Soyer, James
+  Kirkpatrick, Koray Kavukcuoglu, Razvan Pascanu, and Raia Hadsell.
+\newblock Progressive neural networks.
+\newblock \emph{arXiv preprint arXiv:1606.04671}, 2016.
+
+\bibitem[Shin et~al.(2017)Shin, Lee, Kim, and Kim]{shin2017continual}
+Hanul Shin, Jung~Kwon Lee, Jaehong Kim, and Jiwon Kim.
+\newblock Continual learning with deep generative replay.
+\newblock \emph{Advances in Neural Information Processing Systems}, 30, 2017.
+
+\bibitem[Wah et~al.(2011)Wah, Branson, Welinder, Perona, and
+  Belongie]{wah2011caltech}
+Catherine Wah, Steve Branson, Peter Welinder, Pietro Perona, and Serge
+  Belongie.
+\newblock The {Caltech-UCSD} birds-200-2011 dataset.
+\newblock Technical Report CNS-TR-2011-001, California Institute of Technology,
+  2011.
+
+\bibitem[Zenke et~al.(2017)Zenke, Poole, and Ganguli]{zenke2017continual}
+Friedemann Zenke, Ben Poole, and Surya Ganguli.
+\newblock Continual learning through synaptic intelligence.
+\newblock In \emph{International Conference on Machine Learning}, pp.\
+  3987--3995, 2017.
+
+\end{thebibliography}

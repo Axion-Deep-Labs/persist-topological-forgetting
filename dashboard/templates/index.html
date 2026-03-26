@@ -601,13 +601,16 @@
                                 const p2Running = isRunning && runner.current_phase && (runner.current_phase.includes('Landscape') || runner.current_phase.includes('Cubical'));
                                 if (p2Running) p2cls = 'running';
                                 const p2label = p2done === 5 ? (p2c ? 'P2 6/6' : 'P2 5/6') : (p2done > 0 ? 'P2 ' + p2done + '/6' : 'P2 Topo');
-                                // P3: naive + EWC + cosine
-                                const p3ids = ['phase3','phase3_ewc','phase3_cosine'];
+                                // P3: naive + EWC + cosine + SI (SI optional)
+                                const p3core = ['phase3','phase3_ewc','phase3_cosine'];
+                                const p3hasSI = exp.phases['phase3_si'] === 'complete';
+                                const p3ids = p3hasSI ? [...p3core, 'phase3_si'] : p3core;
+                                const p3total = p3ids.length;
                                 const p3done = p3ids.filter(p => exp.phases[p] === 'complete').length;
-                                let p3cls = p3done === 3 ? 'complete' : (p3done > 0 ? 'complete' : 'pending');
-                                const p3Running = isRunning && runner.current_phase && (runner.current_phase.includes('Forgetting') || runner.current_phase.includes('EWC') || runner.current_phase.includes('Cosine'));
+                                let p3cls = p3done === p3total ? 'complete' : (p3done > 0 ? 'complete' : 'pending');
+                                const p3Running = isRunning && runner.current_phase && (runner.current_phase.includes('Forgetting') || runner.current_phase.includes('EWC') || runner.current_phase.includes('Cosine') || runner.current_phase.includes('SI'));
                                 if (p3Running) p3cls = 'running';
-                                const p3label = p3done === 3 ? 'P3 3/3' : (p3done > 0 ? 'P3 ' + p3done + '/3' : 'P3 Forget');
+                                const p3label = p3done === p3total ? 'P3 ' + p3total + '/' + p3total : (p3done > 0 ? 'P3 ' + p3done + '/' + p3total : 'P3 Forget');
                                 return `<div class="phase ${p1cls}">P1 Train</div>`
                                      + `<div class="phase ${p2cls}">${p2label}</div>`
                                      + `<div class="phase ${p3cls}">${p3label}</div>`;
@@ -641,7 +644,7 @@
             }
             let html = `<table class="results-table"><tr>
                 <th>Architecture</th><th>Params</th><th>Acc</th><th>H0</th><th>H1</th><th>H0c</th>
-                <th>Ret@10</th><th>Ret@100</th><th>Ret@500</th><th>EWC@100</th><th>Cos@100</th></tr>`;
+                <th>Ret@10</th><th>Ret@100</th><th>Ret@500</th><th>EWC@100</th><th>SI@100</th><th>Cos@100</th></tr>`;
             for (const exp of complete) {
                 const r = exp.results;
                 const fmt = (v) => v !== undefined && v !== null ? (v*100).toFixed(1)+'%' : '\u2014';
@@ -656,6 +659,7 @@
                     <td>${fmt(r.ret_100)}</td>
                     <td>${fmt(r.ret_500)}</td>
                     <td>${fmt(r.ewc_ret_100)}</td>
+                    <td>${fmt(r.si_ret_100)}</td>
                     <td>${fmt(r.cosine_ret_100)}</td>
                 </tr>`;
             }

@@ -25,25 +25,49 @@ from experiments.shared.models import get_model
 from experiments.shared.utils import set_seed, load_config, save_checkpoint, evaluate
 
 
-def train_one_epoch(model, dataloader, criterion, optimizer, device):
+def train_one_epoch(model, dataloader, criterion, optimizer, device,
+                    scaler=None, grad_accum_steps=1):
     model.train()
     running_loss = 0.0
     correct = 0
     total = 0
+    use_amp = scaler is not None and scaler.is_enabled()
+    optimizer.zero_grad()
 
-    for images, labels in dataloader:
+    for step, (images, labels) in enumerate(dataloader):
         images, labels = images.to(device), labels.to(device)
 
-        optimizer.zero_grad()
-        outputs = model(images)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        optimizer.step()
+        with torch.amp.autocast("cuda", enabled=use_amp):
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+            scaled_loss = loss / grad_accum_steps
+
+        if scaler is not None:
+            scaler.scale(scaled_loss).backward()
+        else:
+            scaled_loss.backward()
+
+        if (step + 1) % grad_accum_steps == 0:
+            if scaler is not None:
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                optimizer.step()
+            optimizer.zero_grad()
 
         running_loss += loss.item() * images.size(0)
         _, predicted = outputs.max(1)
         total += labels.size(0)
         correct += predicted.eq(labels).sum().item()
+
+    # Handle remaining accumulated gradients
+    if (step + 1) % grad_accum_steps != 0:
+        if scaler is not None:
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            optimizer.step()
+        optimizer.zero_grad()
 
     return running_loss / total, correct / total
 
@@ -53,6 +77,8 @@ def main():
     parser.add_argument("--config", type=str, default="configs/exp01.yaml")
     parser.add_argument("--seed", type=int, default=None,
                         help="Override config seed (for multi-seed runs)")
+    parser.add_argument("--pretrained", action="store_true",
+                        help="Use ImageNet pretrained weights (for fine-tuning)")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -81,17 +107,38 @@ def main():
     print(f"  Task A: {len(train_loader.dataset)} train, {len(test_loader.dataset)} test samples")
 
     # Model
-    model = get_model(cfg["architecture"], num_classes=cfg["num_classes_a"]).to(device)
+    model = get_model(cfg["architecture"], num_classes=cfg["num_classes_a"],
+                      pretrained=args.pretrained).to(device)
     param_count = sum(p.numel() for p in model.parameters())
     print(f"  Parameters: {param_count:,}")
+    if args.pretrained:
+        print(f"  Pretrained: ImageNet weights loaded")
+
+    # AMP and gradient accumulation
+    use_amp = cfg.get("use_amp", False)
+    grad_accum_steps = cfg.get("grad_accum_steps", 1)
+    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
+    if use_amp:
+        print(f"  AMP: enabled")
+    if grad_accum_steps > 1:
+        print(f"  Gradient accumulation: {grad_accum_steps} steps")
 
     # Optimizer + Scheduler
-    optimizer = optim.SGD(
-        model.parameters(),
-        lr=train_cfg["lr"],
-        momentum=train_cfg["momentum"],
-        weight_decay=train_cfg["weight_decay"],
-    )
+    opt_name = train_cfg.get("optimizer", "sgd")
+    if opt_name == "adamw":
+        optimizer = optim.AdamW(
+            model.parameters(),
+            lr=train_cfg["lr"],
+            weight_decay=train_cfg["weight_decay"],
+        )
+    else:
+        optimizer = optim.SGD(
+            model.parameters(),
+            lr=train_cfg["lr"],
+            momentum=train_cfg["momentum"],
+            weight_decay=train_cfg["weight_decay"],
+        )
+    print(f"  Optimizer: {opt_name.upper()}")
 
     warmup = LinearLR(optimizer, start_factor=0.1, total_iters=train_cfg["warmup_epochs"])
     cosine = CosineAnnealingLR(optimizer, T_max=train_cfg["epochs"] - train_cfg["warmup_epochs"])
@@ -109,7 +156,8 @@ def main():
     for epoch in range(1, train_cfg["epochs"] + 1):
         t0 = time.time()
 
-        train_loss, train_acc = train_one_epoch(model, train_loader, criterion, optimizer, device)
+        train_loss, train_acc = train_one_epoch(model, train_loader, criterion, optimizer, device,
+                                                scaler=scaler, grad_accum_steps=grad_accum_steps)
         test_acc = evaluate(model, test_loader, device)
         scheduler.step()
 

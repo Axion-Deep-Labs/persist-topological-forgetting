@@ -59,25 +59,37 @@ def get_random_direction(model):
     return direction
 
 
-def preload_dataset_to_gpu(dataloader, device):
-    """Load entire dataset into GPU memory as a single tensor pair.
+def preload_dataset_to_gpu(dataloader, device, max_gpu_mb=2000):
+    """Load entire dataset into GPU memory if it fits within budget.
 
-    CIFAR-100 test set (Task A) is ~5000 images × 3 × 32 × 32 ≈ 20 MB.
-    Eliminates CPU→GPU transfer overhead on every grid point evaluation.
+    CIFAR-100/CUB/RESISC test sets (~20MB) preload fine.
+    ImageNet-100 val (~1.1GB) preloads on A100 but may not fit on V100
+    alongside a large model. Returns (None, None) if too large.
     """
     all_images, all_labels = [], []
+    total_bytes = 0
     for images, labels in dataloader:
+        total_bytes += images.nelement() * images.element_size()
         all_images.append(images)
         all_labels.append(labels)
+        if total_bytes / (1024**2) > max_gpu_mb:
+            size_mb = total_bytes / (1024**2)
+            print(f"  Dataset too large for GPU preload ({size_mb:.0f}MB > {max_gpu_mb}MB)")
+            print(f"  Using batched evaluation instead")
+            return None, None
     return torch.cat(all_images).to(device), torch.cat(all_labels).to(device)
 
 
 @torch.no_grad()
-def compute_loss_on_grid(model, images_gpu, labels_gpu, base_params, dir1, dir2, grid_range, steps, device):
+def compute_loss_on_grid(model, images_gpu, labels_gpu, base_params, dir1, dir2,
+                         grid_range, steps, device, dataloader=None):
     """Evaluate loss across a 2D grid of perturbations.
 
+    Supports two modes:
+    - Preloaded: images_gpu/labels_gpu are tensors on GPU (fast, for small datasets)
+    - Batched: images_gpu is None, iterates over dataloader per grid point (for large datasets)
+
     Optimizations vs naive approach:
-    - Pre-loaded GPU data: no CPU→GPU transfer per grid point
     - Mixed precision (AMP): ~2x throughput on tensor cores
     - Row-wise perturbation: set alpha once per row, only update beta per column
     """
@@ -87,40 +99,48 @@ def compute_loss_on_grid(model, images_gpu, labels_gpu, base_params, dir1, dir2,
     beta_step = betas[1] - betas[0] if steps > 1 else 0.0
 
     loss_grid = np.zeros((steps, steps))
-    total_samples = images_gpu.shape[0]
+    use_preloaded = images_gpu is not None
 
     total_points = steps * steps
     pbar = tqdm(total=total_points, desc="Sampling loss landscape")
 
-    # Process in batches for AMP (full dataset at once if it fits)
     batch_size = 512
 
     for i, alpha in enumerate(alphas):
-        # Set base + alpha * dir1 + betas[0] * dir2 at start of each row
         for param, base, d1, d2 in zip(model.parameters(), base_params, dir1, dir2):
             param.data.copy_(base + alpha * d1 + betas[0] * d2)
 
         for j in range(steps):
             if j > 0:
-                # Incremental: only add beta_step * dir2 (instead of full recompute)
                 for param, d2 in zip(model.parameters(), dir2):
                     param.data.add_(beta_step * d2)
 
-            # Evaluate loss with mixed precision
-            total_loss = 0.0
-            for start in range(0, total_samples, batch_size):
-                end = min(start + batch_size, total_samples)
-                with torch.amp.autocast("cuda"):
-                    outputs = model(images_gpu[start:end])
-                    loss = criterion(outputs, labels_gpu[start:end])
-                total_loss += loss.item() * (end - start)
+            if use_preloaded:
+                total_loss = 0.0
+                total_samples = images_gpu.shape[0]
+                for start in range(0, total_samples, batch_size):
+                    end = min(start + batch_size, total_samples)
+                    with torch.amp.autocast("cuda"):
+                        outputs = model(images_gpu[start:end])
+                        loss = criterion(outputs, labels_gpu[start:end])
+                    total_loss += loss.item() * (end - start)
+                loss_grid[i, j] = total_loss / total_samples
+            else:
+                total_loss = 0.0
+                total_samples = 0
+                for images, labels in dataloader:
+                    images, labels = images.to(device), labels.to(device)
+                    with torch.amp.autocast("cuda"):
+                        outputs = model(images)
+                        loss = criterion(outputs, labels)
+                    total_loss += loss.item() * images.size(0)
+                    total_samples += images.size(0)
+                loss_grid[i, j] = total_loss / total_samples
 
-            loss_grid[i, j] = total_loss / total_samples
             pbar.update(1)
 
     pbar.close()
 
-    # Restore original parameters
     for param, base in zip(model.parameters(), base_params):
         param.data.copy_(base)
 
@@ -255,6 +275,7 @@ def main():
         grid_range=landscape_cfg["range"],
         steps=landscape_cfg["steps_per_direction"],
         device=device,
+        dataloader=test_loader if images_gpu is None else None,
     )
     landscape_time = time.time() - t0
     print(f"  Landscape computed in {landscape_time:.1f}s")

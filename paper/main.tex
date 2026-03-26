@@ -32,7 +32,7 @@
   \texttt{cag1145@nmsu.edu}
 }
 
-\date{February 2026}
+\date{March 2026}
 
 \begin{document}
 
@@ -40,7 +40,7 @@
 
 % ════════════════════════════════════════
 \begin{abstract}
-We investigate whether topological features of neural network loss landscapes predict resistance to catastrophic forgetting across 19 architectures and 3 datasets (CIFAR-100, CUB-200-2011, NWPU-RESISC45; 57 total configurations). Using persistent homology on 2D cross-sections of loss landscapes (5 independent slices per architecture), we compute $H_0$ (connected components) and $H_1$ (loops) persistence via Ripser and GUDHI cubical complexes. Per-dataset leave-one-architecture-out (LOAO) Ridge regression with permutation testing shows topology's predictive value for forgetting is conditional on dataset: topology rescues forgetting prediction on CUB-200 (permutation $p = 0.037$, suggestive but not surviving Bonferroni correction) but not RESISC-45 ($p = 0.566$) or CIFAR-100 ($p = 0.295$, where parameter count dominates). A WRN-28-$k$ width ladder ($k = 1, 2, 4, 6, 8, 10$) shows $H_0$ monotonically decreases with width ($\rho = -1.0$) across all 3 datasets, confirmed by cubical persistence ($\rho = 1.0$ agreement with Ripser), validating $H_0$ as a structurally meaningful landscape summary. In exploratory post-hoc analysis, we additionally observe that $H_0$ correlates with EWC mitigation benefit on CIFAR-100 ($\rho = 0.76$, $p = 0.0002$) and RESISC-45 ($\rho = 0.86$, $p = 2.4 \times 10^{-6}$) but not CUB-200 ($\rho = 0.31$, $p = 0.19$); a pooled interaction model suggests dataset-dependent moderation (permutation $p = 0.046$), though this result is post-hoc, does not survive strict multiple-comparison correction, and requires confirmatory replication. We propose the basin fragmentation hypothesis as a candidate mechanism linking landscape topology to regularization sensitivity.
+We investigate whether topological features of neural network loss landscapes predict resistance to catastrophic forgetting across 19 architectures and 3 datasets (CIFAR-100, CUB-200-2011, NWPU-RESISC45; 57 total configurations). Using persistent homology on 2D cross-sections of loss landscapes (5 independent slices per architecture), we compute $H_0$ (connected components) and $H_1$ (loops) persistence via Ripser and GUDHI cubical complexes. Per-dataset leave-one-architecture-out (LOAO) Ridge regression with permutation testing shows topology's predictive value for forgetting is conditional on dataset: topology rescues forgetting prediction on CUB-200 (permutation $p = 0.037$, suggestive but not surviving Bonferroni correction) but not RESISC-45 ($p = 0.566$) or CIFAR-100 ($p = 0.295$, where parameter count dominates). A WRN-28-$k$ width ladder ($k = 1, 2, 4, 6, 8, 10$) shows $H_0$ monotonically decreases with width ($\rho = -1.0$) across all 3 datasets, confirmed by cubical persistence ($\rho = 1.0$ agreement with Ripser), validating $H_0$ as a structurally meaningful landscape summary. In exploratory post-hoc analysis, we additionally observe that $H_0$ correlates with EWC mitigation benefit on CIFAR-100 ($\rho = 0.76$, $p = 0.0002$) and RESISC-45 ($\rho = 0.86$, $p = 2.4 \times 10^{-6}$) but not CUB-200 ($\rho = 0.31$, $p = 0.19$). Controlled regression confirms $H_0$ is not a proxy for model size: on RESISC-45, $H_0$ remains the dominant predictor after controlling for parameter count ($p < 0.001$, $R^2 = 0.764$ jointly vs.\ $0.242$ for params alone). A pooled interaction model suggests dataset-dependent moderation (permutation $p = 0.046$), though this result is post-hoc, does not survive strict multiple-comparison correction, and requires confirmatory replication. We propose the basin fragmentation hypothesis as a candidate mechanism linking landscape topology to regularization sensitivity.
 \end{abstract}
 
 % ════════════════════════════════════════
@@ -56,7 +56,7 @@ Our contributions are:
     \item A cross-architecture, cross-dataset study (19 architectures, 3 datasets, 57 configurations) with a 7-phase experimental pipeline including both Ripser and GUDHI cubical persistence.
     \item Evidence that topology's predictive value for forgetting is conditional on dataset: topology rescues prediction on CUB-200 (permutation $p = 0.037$, suggestive) but not on RESISC-45 ($p = 0.566$) or CIFAR-100 ($p = 0.295$, where parameter count dominates).
     \item A WRN-28-$k$ width ladder (6 widths, $k = 1, 2, 4, 6, 8, 10$) isolating topology from model scale, showing consistent $H_0$ monotonicity ($\rho = -1.0$ vs.\ width on all 3 datasets) and perfect Ripser--GUDHI agreement, validating $H_0$ as a structurally meaningful landscape summary.
-    \item An exploratory post-hoc observation that $H_0$ correlates with EWC mitigation benefit ($\rho = 0.76$--$0.86$) on 2 of 3 datasets. This finding was not part of the original study design, is supported by a pooled interaction model (permutation $p = 0.046$) that does not survive strict correction, and requires pre-registered confirmatory replication. We report it with explicit falsification targets (Section~\ref{sec:limitations}).
+    \item An exploratory post-hoc observation that $H_0$ correlates with EWC mitigation benefit ($\rho = 0.76$--$0.86$) on 2 of 3 datasets, with controlled regression demonstrating that $H_0$ retains predictive power after controlling for parameter count and architectural depth (RESISC-45 $p < 0.001$, pooled $p = 0.012$). This finding was not part of the original study design, is supported by a pooled interaction model (permutation $p = 0.046$) that does not survive strict correction, and requires pre-registered confirmatory replication. We report it with explicit falsification targets (Section~\ref{sec:limitations}).
     \item A proposed mechanistic account (basin fragmentation hypothesis) linking $H_0$ to regularization sensitivity, offered as a candidate explanation to guide future confirmatory work.
     \item Open-source release of all code, configurations, and results.\footnote{\url{https://github.com/Axion-Deep-Labs/persist-topological-forgetting}}
 \end{enumerate}
@@ -286,6 +286,33 @@ CUB-200    & 0.31 & [$-$0.22, 0.78] & 0.190 & 0.26 & 0.30 \\
 
 This is the most stable cross-dataset signal in our study. Architectures with more fragmented loss landscapes (higher $H_0$) benefit more from EWC regularization. The CIFAR-100 and RESISC-45 correlations are corroborated by Kendall $\tau$ ($0.57$ and $0.67$, both $p < 0.001$) and show moderate leave-one-out stability (maximum $\rho$ shift of $0.11$ and $0.07$ when dropping the most influential architecture). The CUB-200 correlation is non-significant with a wide CI spanning zero and higher LOO instability ($\Delta\rho = 0.30$), consistent with the absence of a genuine effect on this dataset.
 
+\subsection{Controlling for Model Capacity}
+\label{sec:capacity_control}
+
+A natural concern is whether $H_0$ merely proxies for parameter count. The WRN width ladder shows perfect $H_0$--capacity monotonicity ($\rho = -1.0$), and the bivariate Spearman correlations between $H_0$ and EWC benefit could reflect a shared dependence on model scale. To test this directly, we fit per-dataset OLS regressions of EWC benefit on $\log(\text{params})$ and $H_0$ jointly, asking whether $H_0$ retains predictive power after controlling for capacity. Table~\ref{tab:capacity_control} presents the results.
+
+\begin{table}[t]
+\centering
+\caption{Controlled regression: EWC benefit $\sim$ $\log(\text{params})$ $+$ $H_0$. $R^2$ columns show variance explained by each predictor set. $H_0$ $p$ tests whether topology contributes beyond parameter count. Adding depth (weight-bearing layer count) as a third predictor does not reach significance on any dataset ($p > 0.26$) and does not change the $H_0$ coefficient.}
+\label{tab:capacity_control}
+\small
+\setlength{\tabcolsep}{2.5pt}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Dataset & $R^2_{\text{params}}$ & $R^2_{H_0}$ & $R^2_{\text{both}}$ & $H_0$ $p$ & Partial $\rho$ \\
+\midrule
+CIFAR-100 ($n\!=\!19$)  & 0.527 & 0.304 & 0.626 & 0.056 & +0.39 \\
+CUB-200 ($n\!=\!19$)    & 0.212 & 0.017 & 0.216 & 0.767 & +0.28 \\
+RESISC-45 ($n\!=\!19$)  & 0.242 & 0.645 & \textbf{0.764} & $\mathbf{< 0.001}$ & \textbf{+0.63} \\
+Pooled ($n\!=\!57$)      & 0.262 & 0.150 & 0.344 & \textbf{0.012} & \textbf{+0.33} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+On RESISC-45, $H_0$ alone explains more variance ($R^2 = 0.645$) than parameter count ($R^2 = 0.242$), and remains highly significant in the joint model ($p < 0.001$). The combined model reaches $R^2 = 0.764$, with the partial Spearman correlation of $H_0$ residuals on EWC benefit residuals at $\rho = +0.63$ ($p = 0.004$). In the pooled analysis, $H_0$ remains significant ($p = 0.012$) after controlling for $\log(\text{params})$. On CIFAR-100, $H_0$ is marginal ($p = 0.056$), directionally consistent but underpowered at $n = 19$. On CUB-200, $H_0$ contributes nothing beyond parameters, consistent with the null Spearman correlation on that dataset.
+
+These results establish that $H_0$ is not merely a proxy for model size. On RESISC-45, topology is the dominant predictor; on CIFAR-100, it provides additive (if borderline) information; on CUB-200, neither topology nor parameters strongly predict EWC benefit.
+
 \subsection{Pooled Interaction Analysis}
 \label{sec:pooled}
 
@@ -428,7 +455,7 @@ The original hypothesis for this study targeted topology as a direct forgetting 
 \subsection{Conceptual Weaknesses}
 \begin{enumerate}
     \item \textbf{2D slice fidelity.} The entire signal depends on 2D cross-sections of a high-dimensional surface. Five independent slices reduce sampling variance but do not empirically demonstrate that this approximates the true local basin topology. There is no analysis of slice orientation sensitivity: $H_0$ in a 2D slice can reflect saddle structure or orientation artifacts rather than true basin multiplicity.
-    \item \textbf{$H_0$ as capacity proxy.} $H_0$ is strongly tied to model capacity via the WRN width ladder ($\rho = -1.0$). If capacity correlates with landscape smoothness, which correlates with EWC benefit, then $H_0$ may simply proxy for scale-dependent regularization dynamics rather than providing independent topological information. The pooled model controls for $\log(\text{params})$, but the disentanglement is incomplete.
+    \item \textbf{$H_0$ and capacity.} $H_0$ is strongly tied to model capacity via the WRN width ladder ($\rho = -1.0$). However, per-dataset controlled regressions (Table~\ref{tab:capacity_control}) show that $H_0$ retains significant predictive power on RESISC-45 ($p < 0.001$) and pooled ($p = 0.012$) after controlling for $\log(\text{params})$, with $H_0$ explaining more variance than parameter count on RESISC-45 ($R^2 = 0.645$ vs.\ $0.242$). Adding architectural depth as a third covariate does not alter the $H_0$ coefficient. The confound is partially but not fully resolved: CIFAR-100 remains borderline ($p = 0.056$), and with $n = 19$ per dataset, power is limited.
     \item \textbf{WRN perfect monotonicity.} $\rho = -1.0$ across all 3 datasets with only 6 data points ($k = 1, 2, 4, 6, 8, 10$) is consistent with a structural relationship but can also occur by chance: the probability of perfect monotonicity in 6 random points is $1/6! \approx 0.0014$ per dataset, yielding $(1/6!)^3 \approx 2.7 \times 10^{-9}$ for all three under independence. The structural interpretation is plausible but not proven.
     \item \textbf{Mechanistic speculation.} The basin fragmentation hypothesis is entirely correlational. No experiment manipulates landscape fragmentation (e.g., via sharpness-aware minimization) to test whether EWC benefit changes correspondingly.
 \end{enumerate}
@@ -448,7 +475,7 @@ The original hypothesis for this study targeted topology as a direct forgetting 
 
 Across 19 architectures and 3 datasets (57 configurations), we find that loss landscape topology is a conditional, not universal, predictor of continual learning dynamics. Topology rescues forgetting prediction on CUB-200 (permutation $p = 0.037$, suggestive) where baseline metrics alone are insufficient, but adds no predictive value on CIFAR-100 (where parameter count dominates) or RESISC-45. The WRN-28-$k$ width ladder validates $H_0$ as a structurally meaningful landscape summary: $H_0$ monotonically decreases with capacity ($\rho = -1.0$ on all 3 datasets), and Ripser--GUDHI agreement ($\rho = 1.0$) rules out software artifacts, though with only $n = 6$ widths, perfect monotonicity can occur by chance.
 
-In exploratory post-hoc analysis, we additionally observe that $H_0$ correlates with EWC mitigation benefit on CIFAR-100 ($\rho = 0.76$, 95\% CI $[0.46, 0.91]$) and RESISC-45 ($\rho = 0.86$, 95\% CI $[0.65, 0.94]$) but not CUB-200 ($\rho = 0.31$, 95\% CI $[-0.22, 0.78]$). A pooled interaction model provides suggestive evidence of dataset-dependent moderation (permutation $p = 0.046$), but this result was not pre-specified, does not survive conservative correction, and should be treated as hypothesis-generating rather than confirmatory. The basin fragmentation hypothesis offers a candidate mechanism linking $H_0$ to regularization sensitivity, but remains untested.
+In exploratory post-hoc analysis, we additionally observe that $H_0$ correlates with EWC mitigation benefit on CIFAR-100 ($\rho = 0.76$, 95\% CI $[0.46, 0.91]$) and RESISC-45 ($\rho = 0.86$, 95\% CI $[0.65, 0.94]$) but not CUB-200 ($\rho = 0.31$, 95\% CI $[-0.22, 0.78]$). Controlled regression establishes that $H_0$ is not merely a proxy for model size: on RESISC-45, topology explains more variance than parameter count ($R^2 = 0.645$ vs.\ $0.242$) and remains significant in the joint model ($p < 0.001$); pooled across datasets, $H_0$ retains significance after capacity controls ($p = 0.012$). A pooled interaction model provides suggestive evidence of dataset-dependent moderation (permutation $p = 0.046$), but this result was not pre-specified, does not survive conservative correction, and should be treated as hypothesis-generating rather than confirmatory. The basin fragmentation hypothesis offers a candidate mechanism linking $H_0$ to regularization sensitivity, but remains untested.
 
 Critically, these results constitute a \emph{preliminary proof-of-concept} on small-to-medium models (0.3M--44.7M parameters) and small-image datasets. Whether the topological signal survives at production scale remains genuinely unknown and constitutes the primary open research question. Scaling persistent homology to models with hundreds of millions or billions of parameters introduces fundamental computational barriers: Ripser complexity is superpolynomial in the number of sampled points, and it is unclear whether the 2D subsampling strategy retains fidelity in high-dimensional parameter spaces.
 

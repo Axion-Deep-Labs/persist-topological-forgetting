@@ -31,7 +31,7 @@ from tqdm import tqdm
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
-from experiments.shared.datasets import SplitCIFAR100
+from experiments.shared.datasets import get_split_dataset
 from experiments.shared.models import get_model
 from experiments.shared.utils import set_seed, load_config, load_checkpoint
 
@@ -164,7 +164,7 @@ def main():
 
     # ── Load model and Task A test data ──
     model = get_model(cfg["architecture"], num_classes=cfg["num_classes_a"]).to(device)
-    data = SplitCIFAR100(cfg["data_dir"], split_at=cfg["task_a_classes"][1])
+    data = get_split_dataset(cfg)
     _, test_loader = data.get_task_a(batch_size=256)
 
     # Pre-load test set to GPU for fast evaluation

@@ -1,0 +1,123 @@
+# EXP-04: Topological Dynamics of Grokking — Pilot Config
+# This file encodes every locked decision from DESIGN.md.
+# The pipeline reads this config. No decisions live in code.
+
+experiment:
+  name: exp04_grokking_topology
+  phase: pilot
+  description: "5-run pilot to verify PH signal viability before full study"
+
+# --- Task ---
+task:
+  type: modular_addition
+  modulus: 97
+  train_fraction: 0.5  # 50/50 split
+
+# --- Model ---
+model:
+  type: transformer_decoder
+  n_layers: 1
+  d_model: 128
+  n_heads: 4
+  dropout: 0.0
+
+# --- Training ---
+training:
+  optimizer: adamw
+  learning_rate: 1.0e-3
+  weight_decay: 0.03  # calibration sweep result: WD=0.03 gives 70K-step grokking delay
+  total_steps: 100000
+  batch_size: full  # full-batch training to match Power et al. (2022). 1 step = 1 epoch.
+
+# --- Seeds ---
+seeds: [42, 137, 256, 1024, 7777]  # 5 pilot seeds
+
+# --- Checkpoints ---
+checkpoints:
+  # Every 2,000 steps for steps 0-78,000 (40 checkpoints)
+  # Every 500 steps for steps 80,000-100,000 (41 checkpoints)
+  # Total: 81 checkpoints per run
+  standard_cadence: 2000
+  fine_cadence: 500
+  fine_cadence_start: 80000  # last 20% of training, defined globally, not relative to onset
+
+# --- Persistent Homology ---
+topology:
+  method: loss_landscape_slices  # 2D slices, Li et al. 2018
+  grid_size: 50  # 50x50 grid
+  n_slices: 5  # independent random directions per checkpoint, averaged
+  direction_norm: filter  # filter-normalized random directions
+
+  # Primary endpoint
+  primary: h0_feature_count
+
+  # Secondary endpoints
+  secondary:
+    - h0_total_persistence
+    - h1_total_persistence
+    - h0_persistence_entropy
+
+  # Exploratory only (logged, not used in primary analysis)
+  exploratory:
+    - h1_feature_count
+    - h1_max_persistence
+    - h1_persistence_entropy
+
+  # Computation: per slice first, then average across slices
+  aggregation: per_slice_then_average
+
+# --- Baselines ---
+baselines:
+  local_geometry:
+    - commutator_defect    # Dohmatob et al., 2026
+    - sharpness            # trace of Hessian approximation
+  global:
+    - spectral_concentration  # top eigenvalue ratio of weight SVD
+  simple_controls:
+    - weight_norm_l2
+    - training_loss_curvature  # second derivative of loss curve
+    - generalization_gap       # train_acc - test_acc
+    - validation_loss_slope
+
+# --- Grokking Onset Definition ---
+onset:
+  metric: test_accuracy
+  threshold: 0.90
+  condition: train_accuracy_above  # train acc must already exceed this
+  condition_threshold: 0.99
+  # Sensitivity analysis thresholds (full study only)
+  sensitivity_thresholds: [0.80, 0.95]
+
+# --- Evaluation ---
+evaluation:
+  # Pre-grokking window for AUROC
+  pre_grokking_window_fraction: 0.10  # last 10% of steps before onset
+  pre_grokking_window_sensitivity: [0.05, 0.20]
+
+  # Reliability threshold
+  reliability_threshold: 0.70  # predictor must signal in >= 70% of seeds
+
+  # Changepoint detection
+  changepoint:
+    method: pelt
+    penalty: 3.0  # fixed across all predictors, not tuned per method
+    # Robustness check
+    robustness_method: threshold
+    robustness_n_std: 2.0  # 2 std from pre-memorization mean
+
+# --- Pilot Gate ---
+pilot_gate:
+  # Proceed to full experiment only if:
+  min_consistent_seeds: 3  # out of 5
+  # "consistent directional" = same direction of change (increase or decrease)
+  # in at least one PH statistic prior to test accuracy rising
+  criterion: "At least one PH statistic shows consistent directional behavior across >= 3/5 runs prior to grokking onset"
+
+# --- Full Study (locked, applied after pilot passes) ---
+full_study:
+  weight_decay_sweep: [0.03, 0.1, 0.3]  # informed by calibration: 0.01 never groks, 1.0+ groks instantly
+  seeds_per_condition: 30  # 90 total
+  slice_stability_control:
+    enabled: true
+    n_runs: 10  # spread across weight decay conditions
+    slice_counts: [5, 10]  # compare predictor rankings between these

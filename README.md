@@ -4,11 +4,11 @@
 
 Can the topology of a loss landscape predict how well a model resists catastrophic forgetting?
 
-## Project Status: Preliminary Proof-of-Concept Complete — Phase I Requires Supercomputer
+## Project Status: Phase I Scale Validation In Progress (NMSU Discovery HPC)
 
 **Preliminary work** (complete) established proof-of-concept on small-to-medium models (0.3M-44.7M parameters) across 3 small-image datasets. This is the petri dish: we computed persistent homology on 2D cross-sections of loss landscapes across 19 architectures and 57 total configurations, demonstrating that topological features correlate with forgetting dynamics and mitigation benefit at this scale.
 
-**Phase I** (planned, requires HPC/supercomputer) will test whether these signals survive at production scale: 100M-7B+ parameter models, large-scale datasets (ImageNet, NLP), long task sequences (10-100+ tasks), and multiple continual learning methods. This is where the real research begins — the preliminary results may not generalize, and computing persistent homology on large weight spaces introduces fundamental computational barriers (superpolynomial complexity) that require novel distributed algorithms.
+**Phase I** (in progress, NMSU Discovery HPC) is testing whether these signals survive at production scale. The cluster provides NVIDIA A100-PCIE-40GB GPUs with unlimited compute hours. 10 ImageNet-100 configurations are ready (100M-300M+ param models including ViT-B/L/H, ConvNeXt-S/B/L, ResNet-101). The pipeline now includes both EWC and Synaptic Intelligence (SI) as continual learning methods, directly addressing the key limitation that the preliminary finding may be EWC-specific.
 
 ## Preliminary Findings (Small-Scale Proof-of-Concept)
 
@@ -79,27 +79,48 @@ Per-dataset partial effects (95% clustered bootstrap CIs):
 - **RESISC-45:** 19/19 architectures, Phases 1-6 complete
 - **57 of 57 total configurations complete**
 
-## Phase I Roadmap (Planned — Requires Supercomputer)
+## Phase I Roadmap (In Progress — NMSU Discovery HPC)
 
-The preliminary work demonstrated topological signal on small models. Phase I addresses the fundamental open questions that require HPC resources:
+The preliminary work demonstrated topological signal on small models. Phase I addresses the fundamental open questions that require HPC resources.
+
+### Compute
+- **Cluster:** NMSU Discovery (via Crystal Gutierrez's institutional affiliation)
+- **GPUs:** NVIDIA A100-PCIE-40GB (discovery-g* nodes)
+- **Quota:** Unlimited compute hours under `nmsu` account
+- **Environment:** PyTorch 2.5.1 + CUDA 12.1, Python 3.10.8
+
+### Phase I-A: ImageNet-100 Scale-Up (Current Priority)
+
+10 configurations ready, targeting 100M-300M+ parameter models on ImageNet-100 (224x224):
+
+| Architecture | Params | Status |
+|---|---|---|
+| ResNet-101 | ~44M | Ready |
+| ConvNeXt-Small | ~50M | Ready |
+| ConvNeXt-Base | ~89M | Ready |
+| ConvNeXt-Large | ~198M | Ready |
+| EfficientNet-B5 | ~30M | Ready |
+| DenseNet-201 | ~20M | Ready |
+| ViT-B/16 | ~86M | Ready |
+| ViT-L/16 | ~304M | Ready |
+| ViT-H/14 | ~632M | Ready |
+| WRN-40-10 | ~56M | Ready |
+
+Each config runs: Phase 1 (train) → Phase 2 (topology) + Phase 3 (naive, EWC, SI) in parallel via SLURM dependency chains.
+
+### Phase I-B: Analysis & Replication (After I-A)
 
 | Challenge | Preliminary (Done) | Phase I Target | Why It Matters |
 |-----------|-------------------|----------------|----------------|
-| Model scale | 0.3M-44.7M params | 100M-7B+ params | Signal may vanish at production scale |
-| PH computation | 5 random 2D slices | Dense sampling, distributed PH | Subsampling may lose fidelity in high dimensions |
-| Higher homology | H0, H1 only | H0, H1, H2, H3 | Higher-dim features exponentially expensive |
-| Task sequences | 2-task (A then B) | 10-100+ sequential tasks | Real CL involves long curricula |
-| CL methods | EWC only | SI, PackNet, replay, adapters | Current finding may be EWC-specific |
-| Datasets | 3 small-image (32x32) | ImageNet, NLP, medical | Domain generalization unknown |
-| Architectures | 19 (n too small for Bonferroni) | 50-100+ | Statistical power for robust claims |
-| Foundation models | None | LLM/ViT-L fine-tuning | Commercial killer app |
+| Model scale | 0.3M-44.7M params | 100M-632M params | Signal may vanish at production scale |
+| CL methods | EWC only | EWC + SI | Tests if finding is EWC-specific or general |
+| Datasets | 3 small-image (32x32) | ImageNet-100 (224x224) | Domain and resolution generalization |
+| Architectures | 19 | 29+ (19 prelim + 10 scale) | More statistical power |
 
-**Compute requirements:** Phase I requires HPC/supercomputer allocation (NSF ACCESS or equivalent). A single topology extraction on a 7B-parameter model requires thousands of GPU-hours. Scaling Ripser beyond ~50M sampled points is an open computational problem (O(n^3) in simplex count). Novel distributed PH algorithms may be required as a Phase I research contribution.
-
-**Genuine failure modes:**
+### Genuine failure modes
 - The topological signal may vanish at scale (small-model artifact)
 - PH subsampling may lose fidelity in high-dimensional parameter spaces
-- Long task sequences may show chaotic topology evolution defeating prediction
+- SI may show no H0 correlation, making the finding EWC-specific
 - Computational cost of PH may scale worse than training itself, making the tool impractical
 
 ## Setup

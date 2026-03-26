@@ -1,0 +1,18 @@
+DRAFT — ArXiv Endorsement Request to Dr. Tran Cao Son
+Status: HOLD — only send if Dr. Cao does not respond
+Endorsement Code: M93UIA
+---
+
+To: Tran Cao Son (tson@nmsu.edu or appropriate address)
+Subject: ArXiv endorsement request — former NMSU CS student
+
+Dr. Son,
+
+This is Joshua Gutierrez. I took AI 1 with you at NMSU and was a research assistant in the CS department while you were running it, working on AR/VR development with Sci-Vista through the New Mexico Consortium and DOE.
+
+I'm submitting a paper on loss landscape topology and catastrophic forgetting to ArXiv under cs.LG and need an endorsement from an existing author. My co-author is Crystal Gutierrez, who is currently a graduate student in the NMSU Engineering department and an adjunct professor there. She did ML work in conjunction with Bayer and the Purdue Data Mine. We've also been meeting with Dr. Huiping Cao in the CS department to discuss the research.
+
+It's a one-click confirmation, not a review. My endorsement code is M93UIA and I'm forwarding the ArXiv email separately.
+
+Thank you,
+Joshua

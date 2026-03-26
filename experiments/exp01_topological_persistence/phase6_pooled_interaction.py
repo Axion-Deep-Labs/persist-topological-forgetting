@@ -3,7 +3,8 @@ Phase 6: Pooled Cross-Dataset Interaction Analysis
 
 Tests two claims with formal inferential statistics:
   Claim 1: Topology is a conditional predictor of forgetting (dataset moderates H0 effect)
-  Claim 2: Topology predicts EWC benefit on some datasets (dataset moderates H0-EWC relationship)
+  Claim 2: Topology predicts CL method benefit on some datasets (dataset moderates H0-benefit relationship)
+  Supports both EWC and SI (Zenke et al., 2017) benefit as outcome variables.
 
 Design:
   - Pooled n=57 (19 architectures x 3 datasets)
@@ -71,9 +72,19 @@ def load_phase4_data(results_dir: Path):
         for name, benefit in zip(ewc_arch_names, ewc_benefits):
             ewc_lookup[name] = benefit
 
+        # Load SI benefits (pre-computed in correlations.si_benefit)
+        si_section = data.get("correlations", {}).get("si_benefit", {})
+        si_benefits = si_section.get("benefits", [None] * 19)
+        si_arch_names = si_section.get("architectures", arch_names)
+
+        si_lookup = {}
+        for name, benefit in zip(si_arch_names, si_benefits):
+            si_lookup[name] = benefit
+
         for arch in per_arch:
             name = arch["arch_name"]
             ewc_benefit = ewc_lookup.get(name)
+            si_benefit = si_lookup.get(name)
 
             # Compute EWC benefit for ret@10 as absolute difference
             ewc_ret10 = arch.get("ewc_ret_10")
@@ -81,6 +92,12 @@ def load_phase4_data(results_dir: Path):
             ewc_benefit_ret10 = None
             if ewc_ret10 is not None and naive_ret10 is not None:
                 ewc_benefit_ret10 = ewc_ret10 - naive_ret10
+
+            # Compute SI benefit for ret@10
+            si_ret10 = arch.get("si_ret_10")
+            si_benefit_ret10 = None
+            if si_ret10 is not None and naive_ret10 is not None:
+                si_benefit_ret10 = si_ret10 - naive_ret10
 
             records.append({
                 "arch_name": name,
@@ -93,6 +110,8 @@ def load_phase4_data(results_dir: Path):
                 "early_aurc": arch["early_aurc"],
                 "ewc_benefit_aurc": ewc_benefit,  # ewc_early_aurc - early_aurc
                 "ewc_benefit_ret10": ewc_benefit_ret10,
+                "si_benefit_aurc": si_benefit,     # si_early_aurc - early_aurc
+                "si_benefit_ret10": si_benefit_ret10,
             })
 
     # Validate: same 19 architecture names across all datasets
@@ -581,7 +600,7 @@ def run_reduced_model(records, outcome_key, outcome_label, standardize_h0=True, 
 
 
 def make_figure(results, output_path):
-    """Two-panel partial effect plot with clustered bootstrap CIs."""
+    """Partial effect plot with clustered bootstrap CIs (2 or 3 panels)."""
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -590,29 +609,41 @@ def make_figure(results, output_path):
         print("WARNING: matplotlib not available, skipping figure")
         return
 
-    # Find forgetting and EWC results
+    # Find forgetting, EWC, and SI results
     forgetting_result = None
     ewc_result = None
+    si_result = None
     for r in results:
-        if r.get("outcome_key") == "ret_10" and r.get("h0_standardization") == "within_dataset_zscore":
+        if r.get("h0_standardization") != "within_dataset_zscore":
+            continue
+        if r.get("outcome_key") == "ret_10":
             forgetting_result = r
-        elif r.get("outcome_key") == "ewc_benefit_aurc" and r.get("h0_standardization") == "within_dataset_zscore":
+        elif r.get("outcome_key") == "ewc_benefit_aurc":
             ewc_result = r
+        elif r.get("outcome_key") == "si_benefit_aurc":
+            si_result = r
 
     if forgetting_result is None or ewc_result is None:
         print("WARNING: Missing results for figure, skipping")
         return
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+    panels = [
+        (forgetting_result, "Partial Effect of H0z on Retention (ret@10)"),
+        (ewc_result, "Partial Effect of H0z on EWC Benefit"),
+    ]
+    if si_result is not None:
+        panels.append((si_result, "Partial Effect of H0z on SI Benefit"))
+
+    n_panels = len(panels)
+    fig, axes = plt.subplots(1, n_panels, figsize=(5 * n_panels, 5))
+    if n_panels == 1:
+        axes = [axes]
 
     ds_labels = ["CIFAR-100", "CUB-200", "RESISC-45"]
     ds_colors = ["#3b82f6", "#f59e0b", "#ef4444"]
     x_pos = [0, 1, 2]
 
-    for ax, result, title in [
-        (ax1, forgetting_result, "Partial Effect of H0z on Retention (ret@10)"),
-        (ax2, ewc_result, "Partial Effect of H0z on EWC Benefit"),
-    ]:
+    for ax, (result, title) in zip(axes, panels):
         pe = result["partial_effects"]
         points = [pe[ds]["point"] for ds in ds_labels]
         ci_lo = [pe[ds]["ci_lo"] for ds in ds_labels]
@@ -674,7 +705,15 @@ def main():
         "early_aurc": "Early AURC 0-500 (robustness)",
         "ewc_benefit_aurc": "EWC Benefit (early AURC, absolute)",
         "ewc_benefit_ret10": "EWC Benefit (ret@10, absolute)",
+        "si_benefit_aurc": "SI Benefit (early AURC, absolute)",
+        "si_benefit_ret10": "SI Benefit (ret@10, absolute)",
     }
+
+    # Check if SI data is available (all non-None for at least one record)
+    has_si = any(r.get("si_benefit_aurc") is not None for r in records)
+    if not has_si:
+        print("\nNote: No SI data available yet. SI outcomes will be skipped.")
+        outcomes = {k: v for k, v in outcomes.items() if not k.startswith("si_")}
 
     all_results = {}
 

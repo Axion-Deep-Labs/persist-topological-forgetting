@@ -1,0 +1,36 @@
+# EXP-01 Phase I: ResNet-101 on ImageNet-100 (224x224, pretrained fine-tuning)
+experiment: exp01_topological_persistence
+dataset: imagenet100
+task_a_classes: [0, 50]
+task_b_classes: [50, 100]
+data_dir: ./data
+img_size: 224
+architecture: resnet101_224
+num_classes_a: 50
+num_classes_b: 50
+training:
+  epochs: 30
+  batch_size: 64
+  optimizer: adamw
+  lr: 1.0e-4
+  momentum: 0.9
+  weight_decay: 0.01
+  lr_schedule: cosine
+  warmup_epochs: 3
+use_amp: true
+grad_accum_steps: 1
+landscape:
+  num_directions: 2
+  steps_per_direction: 50
+  range: [-1.0, 1.0]
+  filter_normalize: true
+topology:
+  max_dimension: 1
+  max_edge_length: 2.0
+  num_landscape_samples: 2500
+forgetting:
+  eval_steps: [10, 25, 50, 100, 250, 500, 1000, 5000]
+  save_checkpoints: true
+output_dir: ./results/exp01_resnet101_imagenet100
+seed: 42
+device: cuda

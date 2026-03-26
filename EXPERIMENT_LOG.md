@@ -2,13 +2,30 @@
 
 ## EXP-01: Topological Persistence
 
-### Current State (57/57 Configurations Complete)
+### Current State
 
-**All three datasets fully complete (19 architectures each, all 7 phases).**
+**Preliminary (57/57 complete). Phase I scale validation in progress on NMSU Discovery HPC.**
 
-- **CIFAR-100:** 19/19 architectures, Phases 1-5 complete
-- **CUB-200-2011:** 19/19 architectures, Phases 1-5 complete
-- **RESISC-45:** 19/19 architectures, Phases 1-5 complete
+- **CIFAR-100:** 19/19 architectures, Phases 1-6 complete (preliminary)
+- **CUB-200-2011:** 19/19 architectures, Phases 1-6 complete (preliminary)
+- **RESISC-45:** 19/19 architectures, Phases 1-6 complete (preliminary)
+- **ImageNet-100:** 10 configs ready, 0/10 submitted (Phase I)
+
+---
+
+### Phase I: HPC Setup (2026-03-23)
+
+**NMSU Discovery cluster access established.**
+
+- **Account:** cag1145 (Crystal Gutierrez, NMSU affiliation), approved 2026-03-16, ID 4505765
+- **GPU verified:** NVIDIA A100-PCIE-40GB (SLURM job 515171 on discovery-g13)
+- **Environment:** `/fs1/scratch/cag1145/persist-env` — PyTorch 2.5.1+cu121, Python 3.10.8, ripser, gudhi, scikit-learn
+- **Storage:** 100GB home + 1TB scratch, no compute hour quota
+- **VPN:** Cisco Secure Client required (`vpn.nmsu.edu`, SAML/SSO + Duo MFA). `openconnect` does NOT work.
+- **SLURM:** Partition `normal` (not `gpu`), GPU nodes are `discovery-g*`, request via `--gres=gpu:1`
+- **Module loads:** `os/rhel_8 → spack/2023a → gcc/12.2.0 → python/cuda` on login node only. Compute nodes don't need module loads — venv is self-contained.
+- **Configs adapted:** `run_experiment.sh` updated for Discovery (partition=normal, time=24h, venv path)
+- **Next steps:** Clone repo to `/fs1/scratch/cag1145/`, download ImageNet-100, submit first batch via `submit_all.sh`
 
 ---
 

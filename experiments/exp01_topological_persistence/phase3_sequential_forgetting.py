@@ -7,7 +7,10 @@ and evaluates Task A test accuracy at configured intervals.
 Supports:
   - Naive sequential training (default)
   - EWC regularization (--ewc): anchors weights to Task A solution
+  - SI regularization (--si): path-integral importance (Zenke et al., 2017)
   - Cosine LR schedule (--lr-schedule cosine): decays LR during Task B
+
+Note: --ewc and --si are mutually exclusive.
 
 Usage:
     # Naive baseline
@@ -17,6 +20,10 @@ Usage:
     # With EWC
     python -m experiments.exp01_topological_persistence.phase3_sequential_forgetting \
         --config configs/exp01.yaml --ewc --ewc-lambda 1000
+
+    # With SI
+    python -m experiments.exp01_topological_persistence.phase3_sequential_forgetting \
+        --config configs/exp01.yaml --si --si-lambda 1000
 
     # With cosine LR
     python -m experiments.exp01_topological_persistence.phase3_sequential_forgetting \
@@ -50,9 +57,16 @@ def main():
                         help="Enable EWC regularization during Task B training")
     parser.add_argument("--ewc-lambda", type=float, default=1000.0,
                         help="EWC penalty weight (default: 1000)")
+    parser.add_argument("--si", action="store_true",
+                        help="Enable SI regularization during Task B training")
+    parser.add_argument("--si-lambda", type=float, default=1000.0,
+                        help="SI penalty weight (default: 1000, comparable to EWC lambda)")
     parser.add_argument("--lr-schedule", choices=["constant", "cosine"], default="constant",
                         help="LR schedule for Task B training (default: constant)")
     args = parser.parse_args()
+
+    if args.ewc and args.si:
+        parser.error("--ewc and --si are mutually exclusive; choose one regularization method")
 
     cfg = load_config(args.config)
     train_cfg = cfg["training"]
@@ -70,6 +84,8 @@ def main():
     variant_parts = []
     if args.ewc:
         variant_parts.append("ewc")
+    if args.si:
+        variant_parts.append("si")
     if args.lr_schedule == "cosine":
         variant_parts.append("cosine")
     variant_label = "_".join(variant_parts) if variant_parts else None
@@ -80,6 +96,8 @@ def main():
     print(f"  Eval steps: {forget_cfg['eval_steps']}")
     if args.ewc:
         print(f"  EWC: enabled (lambda={args.ewc_lambda})")
+    if args.si:
+        print(f"  SI: enabled (lambda={args.si_lambda})")
     if args.lr_schedule != "constant":
         print(f"  LR schedule: {args.lr_schedule}")
     if variant_label:
@@ -110,6 +128,52 @@ def main():
         print("  Computing Fisher information on Task A data...")
         fisher, theta_star = compute_fisher(model, task_a_train, device, n_samples=1000)
         print(f"  Fisher computed ({len(fisher)} parameter groups)")
+
+        # Diagnostic: log Fisher scale for lambda calibration comparison
+        all_fisher = torch.cat([v.flatten() for v in fisher.values()])
+        print(f"  Fisher stats: mean={all_fisher.mean().item():.4e}, "
+              f"median={all_fisher.median().item():.4e}, "
+              f"max={all_fisher.max().item():.4e}")
+
+    # Compute SI importance before expanding the classifier
+    si_omega = None
+    si_theta_star = None
+    if args.si:
+        from experiments.shared.si import compute_si_importance
+        print("  Computing SI importance on Task A data (3 epoch re-train)...")
+        si_opt_name = train_cfg.get("optimizer", "sgd")
+        si_opt_cls = optim.AdamW if si_opt_name == "adamw" else optim.SGD
+        si_opt_kwargs = {"weight_decay": train_cfg["weight_decay"]}
+        if si_opt_name != "adamw":
+            si_opt_kwargs["momentum"] = train_cfg["momentum"]
+        si_omega, si_theta_star = compute_si_importance(
+            model, task_a_train, si_opt_cls,
+            lr=train_cfg["lr"], device=device, n_epochs=3,
+            optimizer_kwargs={
+                **si_opt_kwargs,
+            },
+        )
+        print(f"  SI importance computed ({len(si_omega)} parameter groups)")
+
+        # Diagnostic: log omega scale to calibrate lambda
+        import numpy as np_diag
+        all_omega_np = torch.cat([v.flatten() for v in si_omega.values()]).cpu().numpy()
+        nonzero_pct = (all_omega_np > 0).mean() * 100
+        print(f"  Omega stats: mean={all_omega_np.mean():.4e}, "
+              f"median={float(np_diag.median(all_omega_np)):.4e}, "
+              f"max={all_omega_np.max():.4e}, "
+              f"nonzero={nonzero_pct:.1f}%")
+        nz = all_omega_np[all_omega_np > 0]
+        if len(nz) > 0:
+            print(f"  Omega (nonzero only): mean={nz.mean():.4e}, "
+                  f"median={float(np_diag.median(nz)):.4e}, "
+                  f"p25={float(np_diag.percentile(nz, 25)):.4e}, "
+                  f"p75={float(np_diag.percentile(nz, 75)):.4e}")
+
+    # Reset RNG after EWC/SI computation so classifier init and data order
+    # match the naive baseline (importance computation consumes randomness)
+    if args.ewc or args.si:
+        set_seed(cfg["seed"])
 
     # Expand classifier for Task B classes (handle both .fc and .head)
     # Also handle Sequential classifiers (e.g., MobileNet-V3-Small)
@@ -160,13 +224,40 @@ def main():
                 fisher[n] = new_fisher
                 theta_star[n] = new_theta
 
+    # Update SI omega and theta_star for expanded classifier if SI is active
+    if args.si:
+        from experiments.shared.si import si_penalty
+        for n, p in model.named_parameters():
+            if n not in si_omega:
+                si_omega[n] = torch.zeros_like(p)
+                si_theta_star[n] = p.data.clone()
+            elif si_omega[n].shape != p.shape:
+                old_omega = si_omega[n]
+                old_theta = si_theta_star[n]
+                new_omega = torch.zeros_like(p)
+                new_theta = p.data.clone()
+                slices = tuple(slice(0, s) for s in old_omega.shape)
+                new_omega[slices] = old_omega
+                new_theta[slices] = old_theta
+                si_omega[n] = new_omega
+                si_theta_star[n] = new_theta
+
     # Optimizer for Task B (train all parameters)
-    optimizer = optim.SGD(
-        model.parameters(),
-        lr=train_cfg["lr"] * 0.1,  # Lower LR for fine-tuning
-        momentum=train_cfg["momentum"],
-        weight_decay=train_cfg["weight_decay"],
-    )
+    task_b_lr = train_cfg["lr"] * 0.1
+    opt_name = train_cfg.get("optimizer", "sgd")
+    if opt_name == "adamw":
+        optimizer = optim.AdamW(
+            model.parameters(),
+            lr=task_b_lr,
+            weight_decay=train_cfg["weight_decay"],
+        )
+    else:
+        optimizer = optim.SGD(
+            model.parameters(),
+            lr=task_b_lr,
+            momentum=train_cfg["momentum"],
+            weight_decay=train_cfg["weight_decay"],
+        )
     criterion = nn.CrossEntropyLoss()
 
     eval_steps = set(forget_cfg["eval_steps"])
@@ -207,11 +298,21 @@ def main():
 
             optimizer.zero_grad()
             outputs = model(images)
-            loss = criterion(outputs, labels)
+            ce_loss = criterion(outputs, labels)
+            loss = ce_loss
 
             # Add EWC penalty
+            reg_pen_val = 0.0
             if args.ewc:
-                loss = loss + ewc_penalty(model, fisher, theta_star, args.ewc_lambda)
+                ewc_pen = ewc_penalty(model, fisher, theta_star, args.ewc_lambda)
+                reg_pen_val = ewc_pen.item()
+                loss = loss + ewc_pen
+
+            # Add SI penalty
+            if args.si:
+                si_pen = si_penalty(model, si_omega, si_theta_star, args.si_lambda)
+                reg_pen_val = si_pen.item()
+                loss = loss + si_pen
 
             loss.backward()
             optimizer.step()
@@ -222,6 +323,14 @@ def main():
             step += 1
 
             if step in eval_steps:
+                # Diagnostic: check for NaN and loss values
+                has_nan = any(torch.isnan(p).any().item() for p in model.parameters())
+                if has_nan:
+                    print(f"  [DEBUG] NaN in parameters at step {step}!")
+                if args.si or args.ewc:
+                    print(f"  [DEBUG] step {step}: CE={ce_loss.item():.4f}, "
+                          f"penalty={reg_pen_val:.6f}, total={loss.item():.4f}")
+
                 task_a_acc = evaluate(model, task_a_test, device)
                 task_b_acc = evaluate_shifted(model, task_b_test, device, cfg["num_classes_a"])
                 forgetting = initial_a_acc - task_a_acc
@@ -264,6 +373,9 @@ def main():
     if args.ewc:
         metadata["ewc"] = True
         metadata["ewc_lambda"] = args.ewc_lambda
+    if args.si:
+        metadata["si"] = True
+        metadata["si_lambda"] = args.si_lambda
     if args.lr_schedule != "constant":
         metadata["lr_schedule"] = args.lr_schedule
 

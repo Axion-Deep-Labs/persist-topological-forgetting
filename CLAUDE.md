@@ -20,19 +20,60 @@ dashboard/             — Flask web dashboard (localhost:5050), 3-dataset selec
 
 ## Running Experiments
 
-### Dashboard (Recommended)
+### Local Dashboard (Recommended for monitoring)
 ```bash
 .venv/bin/python dashboard/app.py
 # Open http://localhost:5050
 ```
 Features: experiment queue, GPU/CPU/RAM monitor, live output, pause/resume/stop.
 
-### Manual
+### Local Manual
 ```bash
 python -m experiments.exp01_topological_persistence.phase1_train_task_a --config configs/exp01.yaml
 ```
 
-## EXP-01 Current State (as of 2026-02-25)
+### NMSU Discovery HPC (Phase I)
+
+**Connection:**
+1. Connect VPN: launch Cisco Secure Client → `vpn.nmsu.edu` → Crystal's NMSU credentials + Duo MFA
+2. SSH: `ssh cag1145@discovery.nmsu.edu`
+
+**Environment setup (once per session):**
+```bash
+source /fs1/scratch/cag1145/persist-env/bin/activate
+```
+Note: Module loads (`os/rhel_8`, `spack/2023a`, etc.) fail on compute nodes but the venv has all dependencies self-contained. PyTorch+CUDA work without module loads.
+
+**Submit single experiment:**
+```bash
+sbatch slurm/run_experiment.sh configs/exp01_vit_b_16_imagenet100.yaml phase1
+```
+
+**Submit all Phase I ImageNet-100 experiments:**
+```bash
+bash slurm/submit_all.sh
+```
+
+**Monitor:**
+```bash
+squeue -u cag1145                              # Job status
+cat slurm/logs/<jobid>_<name>.out              # Job output
+sacct -j <jobid> --format=JobID,Elapsed,State  # Completed job info
+```
+
+**Cluster details:**
+- GPUs: NVIDIA A100-PCIE-40GB (on discovery-g* nodes)
+- Partitions: `normal` (7-day limit), `backfill` (14-day), `interactive` (1-day)
+- Storage: 100GB home (`/fs1/home/cag1145`), 1TB scratch (`/fs1/scratch/cag1145`)
+- No compute hour quota (unlimited under `nmsu` account)
+
+**Lessons learned (2026-03-23):**
+- VPN requires Cisco Secure Client (not GlobalProtect); `openconnect` fails due to SAML/SSO + Duo MFA
+- Cisco Secure Client installer: `/home/joshua/Corporate/axiondeep-research/cisco-secure-client-linux64-5.1.10.233-core-vpn-webdeploy-k9.sh`
+- Module load hierarchy: `os/rhel_8` → `spack/2023a` → `gcc/12.2.0` → then python/cuda. But compute nodes don't need this — venv is self-contained.
+- SLURM partition is `normal` (not `gpu`) — GPU nodes are `discovery-g*` within the normal partition, requested via `--gres=gpu:1`
+
+## EXP-01 Current State (as of 2026-03-23)
 
 ### Preliminary Proof-of-Concept (COMPLETE — the "petri dish")
 - **3 datasets:** CIFAR-100, CUB-200-2011 (fine-grained birds), NWPU-RESISC45 (satellite scenes)
@@ -45,15 +86,16 @@ python -m experiments.exp01_topological_persistence.phase1_train_task_a --config
 - Dashboard: 3-dataset selector, "Run All Datasets" button, "Run Predictive" button
 - See EXPERIMENT_LOG.md for full run history and results
 
-### Phase I: Scale Validation (PLANNED — requires supercomputer)
+### Phase I: Scale Validation (IN PROGRESS — NMSU Discovery HPC)
+- **Status:** HPC environment set up and GPU verified (2026-03-23)
+- **Compute:** NMSU Discovery cluster (A100 40GB PCIe GPUs, unlimited hours via Crystal's NMSU affiliation)
+- **Environment:** `/fs1/scratch/cag1145/persist-env` (PyTorch 2.5.1+cu121, Python 3.10.8)
 - **Goal:** Test whether topological signal survives at production scale
-- **Models:** 100M-7B+ parameters (ViT-Large, foundation models, LLMs)
-- **Datasets:** ImageNet, NLP tasks, medical imaging
-- **Task sequences:** 10-100+ sequential tasks (vs current 2-task)
-- **CL methods:** SI, PackNet, replay, adapters (vs current EWC only)
-- **Architectures:** 50-100+ (vs current 19) for statistical power
-- **Compute:** Requires NSF ACCESS or equivalent supercomputer allocation
+- **Models:** 10 ImageNet-100 configs ready (ResNet-101, ConvNeXt-S/B/L, EfficientNet-B5, DenseNet-201, ViT-B/L/H, WRN-40-10)
+- **CL methods:** EWC + SI (both implemented in phase3, `--ewc` and `--si` flags)
+- **Pipeline:** `submit_all.sh` automates phase1 → phase2 + phase3 (naive/EWC/SI) with SLURM dependency chains
 - **Key risks:** Signal may vanish at scale; PH computation may be intractable; subsampling may lose fidelity
+- **Next:** Clone repo to cluster, adapt SLURM scripts for Discovery, download ImageNet-100, submit first batch
 
 ## Rules
 - NEVER commit data/ or results/ directories

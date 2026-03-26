@@ -30,6 +30,7 @@ import os
 import sys
 
 import numpy as np
+import torch
 from scipy import stats
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
@@ -574,6 +575,19 @@ def cross_architecture_analysis(result_dirs):
             entry["ewc_ret_10"] = None
             entry["ewc_auc"] = None
 
+        # Load SI forgetting data if available
+        si_forget_path = os.path.join(rdir, "forgetting_si", "forgetting_curve.json")
+        if os.path.exists(si_forget_path):
+            with open(si_forget_path) as f:
+                si_forget = json.load(f)
+            entry["si_early_aurc"] = compute_early_aurc(si_forget, max_step=500)
+            entry["si_ret_10"] = compute_retention_ratio(si_forget, step=10)
+            entry["si_auc"] = compute_forgetting_auc(si_forget)
+        else:
+            entry["si_early_aurc"] = None
+            entry["si_ret_10"] = None
+            entry["si_auc"] = None
+
         all_data.append(entry)
 
     if len(all_data) < 3:
@@ -1038,6 +1052,40 @@ def cross_architecture_analysis(result_dirs):
             "n": len(ewc_data),
             "architectures": [d["arch_name"] for d, _, _ in ewc_data],
             "benefits": ewc_benefit,
+        }
+
+    # ─── SI Benefit Analysis ───
+    si_data = [(d, d.get("si_early_aurc"), d.get("early_aurc"))
+               for d in all_data
+               if d.get("si_early_aurc") is not None and d.get("early_aurc") is not None]
+    if len(si_data) >= 3:
+        print(f"\n{'=' * 70}")
+        print(f"SI BENEFIT ANALYSIS (n={len(si_data)})")
+        print(f"{'=' * 70}")
+
+        si_benefit = [s[1] - s[2] for s in si_data]
+        print(f"\n  {'Architecture':>20} | {'Naive AURC':>10} | {'SI AURC':>10} | {'Benefit':>10}")
+        print(f"  {'-' * 60}")
+        for d, si_aurc, naive_aurc in si_data:
+            benefit = si_aurc - naive_aurc
+            print(f"  {d['arch_name']:>20} | {naive_aurc:>10.4f} | {si_aurc:>10.4f} | {benefit:>+10.4f}")
+
+        # Correlate topology with SI benefit
+        print(f"\n  Topology vs SI benefit:")
+        for tkey, tname in [("H0", "H0"), ("H1", "H1"), ("H0_cubical", "H0 Cubical"), ("num_params", "Params")]:
+            t_vals = [d.get(tkey) for d, _, _ in si_data]
+            valid = [(t, b) for t, b in zip(t_vals, si_benefit) if t is not None]
+            if len(valid) >= 3:
+                tv, bv = zip(*valid)
+                if len(set(tv)) > 1:
+                    rho_sb, p_sb = stats.spearmanr(tv, bv)
+                    sig = "*" if p_sb < 0.05 else ""
+                    print(f"    {tname:>15} vs SI benefit: rho={rho_sb:.4f} (p={p_sb:.4f}) {sig}")
+
+        all_results["si_benefit"] = {
+            "n": len(si_data),
+            "architectures": [d["arch_name"] for d, _, _ in si_data],
+            "benefits": si_benefit,
         }
 
     # ─── Permutation Test ───

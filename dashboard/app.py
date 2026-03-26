@@ -101,10 +101,36 @@ EXPERIMENTS_RESISC45 = [
     for suffix, name, base_id, params in _ARCH_DEFS
 ]
 
+# Phase I: 224x224 pretrained architectures for ImageNet-100
+_PHASE1_ARCH_DEFS = [
+    ("_resnet101", "ResNet-101", "exp01_resnet101", "~42.6M"),
+    ("_convnext_small", "ConvNeXt-Small", "exp01_convnext_small", "~49.5M"),
+    ("_convnext_base", "ConvNeXt-Base", "exp01_convnext_base", "~87.6M"),
+    ("_convnext_large", "ConvNeXt-Large", "exp01_convnext_large", "~196.3M"),
+    ("_efficientnet_b5", "EfficientNet-B5", "exp01_efficientnet_b5", "~28.4M"),
+    ("_densenet201", "DenseNet-201", "exp01_densenet201", "~18.2M"),
+    ("_vit_b_16", "ViT-B/16", "exp01_vit_b_16", "~85.8M"),
+    ("_vit_l_16", "ViT-L/16", "exp01_vit_l_16", "~303.4M"),
+    ("_vit_h_14", "ViT-H/14", "exp01_vit_h_14", "~630.8M"),
+    ("_wrn4010", "WRN-40-10", "exp01_wrn4010", "~55.9M"),
+]
+
+EXPERIMENTS_IMAGENET100 = [
+    _make_exp(
+        f"{base_id}_imagenet100",
+        name,
+        f"{base_id}_imagenet100.yaml",
+        params,
+        "imagenet100",
+    )
+    for suffix, name, base_id, params in _PHASE1_ARCH_DEFS
+]
+
 ALL_EXPERIMENTS = {
     "cifar100": EXPERIMENTS_CIFAR100,
     "cub200": EXPERIMENTS_CUB200,
     "resisc45": EXPERIMENTS_RESISC45,
+    "imagenet100": EXPERIMENTS_IMAGENET100,
 }
 
 # Active dataset (switchable via API)
@@ -131,6 +157,7 @@ PHASES = [
     {"id": "phase3", "name": "Sequential Forgetting", "module": "phase3_sequential_forgetting", "check_dir": "forgetting", "check_file": "forgetting_curve.json", "auto": True},
     {"id": "phase3_ewc", "name": "Forgetting + EWC", "module": "phase3_sequential_forgetting", "check_dir": "forgetting_ewc", "check_file": "forgetting_curve.json", "auto": True, "extra_args": ["--ewc"]},
     {"id": "phase3_cosine", "name": "Forgetting + Cosine LR", "module": "phase3_sequential_forgetting", "check_dir": "forgetting_cosine", "check_file": "forgetting_curve.json", "auto": True, "extra_args": ["--lr-schedule", "cosine"]},
+    {"id": "phase3_si", "name": "Forgetting + SI", "module": "phase3_sequential_forgetting", "check_dir": "forgetting_si", "check_file": "forgetting_curve.json", "auto": True, "extra_args": ["--si"], "optional": True},
     {"id": "phase2b", "name": "Displacement Analysis", "module": "phase2b_displacement_analysis", "check_dir": "displacement", "check_file": "displacement_summary.json", "auto": False},
 ]
 
@@ -233,6 +260,17 @@ def get_experiment_results(exp_id):
                 if step > 0:
                     results[f"cosine_ret_{step}"] = point["task_a_acc"]
 
+    # Phase 3 SI: forgetting with SI regularization
+    si_path = result_dir / "forgetting_si" / "forgetting_curve.json"
+    if si_path.exists():
+        with open(si_path) as f:
+            data = json.load(f)
+            curve = data.get("curve", [])
+            for point in curve:
+                step = point["step"]
+                if step > 0:
+                    results[f"si_ret_{step}"] = point["task_a_acc"]
+
     return results
 
 
@@ -250,6 +288,7 @@ def archive_phase_results(exp_id, phase_id):
         "phase3": [("forgetting", "forgetting_curve.json")],
         "phase3_ewc": [("forgetting_ewc", "forgetting_curve.json")],
         "phase3_cosine": [("forgetting_cosine", "forgetting_curve.json")],
+        "phase3_si": [("forgetting_si", "forgetting_curve.json")],
     }
     for subdir, filename in backup_map.get(phase_id, []):
         src = result_dir / subdir / filename
@@ -278,6 +317,10 @@ def run_phase(exp, phase, run_id=None):
     # Extra args (e.g., --ewc, --lr-schedule cosine)
     if phase.get("extra_args"):
         cmd.extend(phase["extra_args"])
+
+    # Add --pretrained flag for ImageNet-100 Phase 1 runs
+    if exp.get("dataset") == "imagenet100" and phase["id"] == "phase1":
+        cmd.append("--pretrained")
 
     log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Starting {exp['name']} — {phase['name']}"
     with runner_lock:
@@ -341,6 +384,7 @@ def runner_worker(queue, force=None):
         runner_state["started_at"] = datetime.now().isoformat()
 
     for exp_id, phase_id in queue:
+      try:
         # Find experiment and phase
         exp = next((e for e in get_all_experiments_flat() if e["id"] == exp_id), None)
         phase = next((p for p in PHASES if p["id"] == phase_id), None)
@@ -370,8 +414,13 @@ def runner_worker(queue, force=None):
         if not success:
             with runner_lock:
                 runner_state["logs"].append(
-                    f"[{datetime.now().strftime('%H:%M:%S')}] Stopping queue due to failure."
+                    f"[{datetime.now().strftime('%H:%M:%S')}] {exp['id']}:{phase['id']} failed, skipping to next."
                 )
+      except Exception as exc:
+        with runner_lock:
+            runner_state["logs"].append(
+                f"[{datetime.now().strftime('%H:%M:%S')}] EXCEPTION on {exp_id}:{phase_id}: {exc}, skipping."
+            )
 
     with runner_lock:
         runner_state["running"] = False

@@ -351,6 +351,131 @@ class TransformedSubset(Dataset):
         return img, label
 
 
+# ─── Phase I: ImageNet-100 (224x224) ───
+
+def get_224x224_transforms(train: bool = True, mean=IMAGENET_MEAN, std=IMAGENET_STD):
+    """Standard ImageNet transforms at 224x224 for pretrained models."""
+    if train:
+        return transforms.Compose([
+            transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std),
+        ])
+    return transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize(mean, std),
+    ])
+
+
+def _get_imagenet100_classes(seed=42):
+    """Deterministic selection of 100 ImageNet classes from 1000."""
+    rng = np.random.RandomState(seed)
+    return sorted(rng.choice(1000, 100, replace=False).tolist())
+
+
+class ImageNet100Subset(Dataset):
+    """ImageFolder subset with remapped labels (original class -> 0-99)."""
+
+    def __init__(self, dataset, indices, labels):
+        self.dataset = dataset
+        self.indices = indices
+        self.labels = labels
+        self.targets = labels
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, idx):
+        img, _ = self.dataset[self.indices[idx]]
+        return img, self.labels[idx]
+
+
+class SplitImageNet100:
+    """Split ImageNet-100 (100-class subset of ILSVRC2012) into Task A and Task B.
+
+    100 classes selected deterministically from ImageNet-1K.
+    Images at 224x224 native resolution for pretrained models.
+    Default split: 50/50 classes.
+
+    Requires ILSVRC2012 downloaded to data_dir/imagenet/ with standard
+    train/ and val/ directory structure.
+    """
+
+    def __init__(self, data_dir: str, split_at: int = 50, seed: int = 42):
+        self.split_at = split_at
+
+        imagenet_dir = os.path.join(data_dir, "imagenet")
+        train_dir = os.path.join(imagenet_dir, "train")
+        val_dir = os.path.join(imagenet_dir, "val")
+
+        if not os.path.exists(train_dir):
+            raise FileNotFoundError(
+                f"ImageNet train dir not found: {train_dir}\n"
+                f"Download ILSVRC2012 and extract to {imagenet_dir}/"
+            )
+
+        train_transform = get_224x224_transforms(train=True)
+        val_transform = get_224x224_transforms(train=False)
+
+        full_train = datasets.ImageFolder(train_dir, transform=train_transform)
+        full_val = datasets.ImageFolder(val_dir, transform=val_transform)
+
+        # Select 100 classes and build remap
+        selected_classes = _get_imagenet100_classes(seed)
+        class_set = set(selected_classes)
+        class_remap = {orig: new for new, orig in enumerate(selected_classes)}
+
+        # Filter to selected classes and remap labels
+        train_indices, train_labels = [], []
+        for i, (_, label) in enumerate(full_train.samples):
+            if label in class_set:
+                train_indices.append(i)
+                train_labels.append(class_remap[label])
+
+        val_indices, val_labels = [], []
+        for i, (_, label) in enumerate(full_val.samples):
+            if label in class_set:
+                val_indices.append(i)
+                val_labels.append(class_remap[label])
+
+        self.train_full = ImageNet100Subset(full_train, train_indices, train_labels)
+        self.test_full = ImageNet100Subset(full_val, val_indices, val_labels)
+
+        # Build index masks for Task A / Task B
+        train_targets = np.array(train_labels)
+        test_targets = np.array(val_labels)
+
+        self.task_a_train_idx = np.where(train_targets < split_at)[0]
+        self.task_a_test_idx = np.where(test_targets < split_at)[0]
+        self.task_b_train_idx = np.where(train_targets >= split_at)[0]
+        self.task_b_test_idx = np.where(test_targets >= split_at)[0]
+
+    def get_task_a(self, batch_size: int = 64, num_workers: int = 8):
+        train_ds = RemappedSubset(self.train_full, self.task_a_train_idx, offset=0)
+        test_ds = RemappedSubset(self.test_full, self.task_a_test_idx, offset=0)
+        return (
+            DataLoader(train_ds, batch_size=batch_size, shuffle=True,
+                       num_workers=num_workers, pin_memory=True),
+            DataLoader(test_ds, batch_size=batch_size, shuffle=False,
+                       num_workers=num_workers, pin_memory=True),
+        )
+
+    def get_task_b(self, batch_size: int = 64, num_workers: int = 8):
+        train_ds = RemappedSubset(self.train_full, self.task_b_train_idx,
+                                   offset=self.split_at)
+        test_ds = RemappedSubset(self.test_full, self.task_b_test_idx,
+                                  offset=self.split_at)
+        return (
+            DataLoader(train_ds, batch_size=batch_size, shuffle=True,
+                       num_workers=num_workers, pin_memory=True),
+            DataLoader(test_ds, batch_size=batch_size, shuffle=False,
+                       num_workers=num_workers, pin_memory=True),
+        )
+
+
 def get_split_dataset(cfg):
     """Factory function: returns the right split dataset based on config."""
     dataset_name = cfg.get("dataset", "cifar100")
@@ -363,5 +488,10 @@ def get_split_dataset(cfg):
         return SplitCUB200(data_dir, split_at=split_at)
     elif dataset_name == "resisc45":
         return SplitRESISC45(data_dir, split_at=split_at, seed=cfg.get("seed", 42))
+    elif dataset_name == "imagenet100":
+        return SplitImageNet100(data_dir, split_at=split_at, seed=cfg.get("seed", 42))
     else:
-        raise ValueError(f"Unknown dataset: {dataset_name}. Available: cifar100, cub200, resisc45")
+        raise ValueError(
+            f"Unknown dataset: {dataset_name}. "
+            f"Available: cifar100, cub200, resisc45, imagenet100"
+        )
