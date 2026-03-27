@@ -6,9 +6,11 @@ Does persistent homology of loss landscape slices provide a reliable early-warni
 
 ## 2. Hypothesis
 
-H0 feature count (primary endpoint) exhibits a consistent pre-transition shift that predicts grokking onset with measurable lead time across seeds.
+H0 total persistence (primary endpoint) exhibits a consistent pre-transition shift that predicts grokking onset with measurable lead time across seeds.
 
-Secondary exploratory endpoints (H0 total persistence, H1 total persistence, H0 persistence entropy) are tracked but not part of the primary hypothesis.
+Secondary endpoints (H0 significant count, H0 persistence entropy, H0 median persistence) are tracked for additional signal. H1 endpoints are exploratory only.
+
+**Note (post-pilot revision):** The original primary endpoint (H0 feature count) was discovered to be structurally constant at n-1 = 2499 on a 50x50 grid (a topological invariant of the grid graph, independent of function values). Replaced with H0 total persistence, which showed clear dynamics in pilot runs.
 
 ## 3. Null Hypothesis
 
@@ -27,7 +29,7 @@ Compare all predictors using:
 
 **Success criterion:** A PH feature matches or exceeds the commutator defect in lead time and AUROC in at least one weight decay condition, with reliability >= 70%.
 
-**Primary comparison:** Does H0 feature count match or exceed the commutator defect on lead time, AUROC, and reliability?
+**Primary comparison:** Does H0 total persistence match or exceed the commutator defect on lead time, AUROC, and reliability?
 
 ## 6. Pilot Study (5 runs, before full commitment)
 
@@ -51,9 +53,9 @@ This is not a statistical test. It is a sanity check to verify: (a) PH curves ar
 - **Tracked per checkpoint:**
   - Training metrics: train loss, test loss, train acc, test acc
   - Topological (computed per slice, then averaged across slices):
-    - *Primary endpoint:* H0 feature count
-    - *Secondary endpoints:* H0 total persistence, H1 total persistence, H0 persistence entropy
-    - *Exploratory only (logged, not used in primary analysis):* H1 feature count, H1 max persistence, H1 persistence entropy
+    - *Primary endpoint:* H0 total persistence
+    - *Secondary endpoints:* H0 significant count (persistence > median), H0 persistence entropy, H0 median persistence
+    - *Exploratory only (logged, not used in primary analysis):* H0 feature count (constant = n-1 on grids), H1 feature count, H1 total persistence, H1 max persistence, H1 persistence entropy
   - Local geometry baselines: commutator defect, sharpness (trace of Hessian approximation)
   - Global baselines: spectral concentration (top eigenvalue ratio of weight matrix SVD)
   - Simple controls: weight norm (L2), training loss curvature (second derivative), generalization gap (train acc - test acc), validation loss slope

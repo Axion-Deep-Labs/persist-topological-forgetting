@@ -123,6 +123,22 @@ Each config runs: Phase 1 (train) → Phase 2 (topology) + Phase 3 (naive, EWC, 
 - SI may show no H0 correlation, making the finding EWC-specific
 - Computational cost of PH may scale worse than training itself, making the tool impractical
 
+## EXP-04: Topological Dynamics of Grokking (Pilot In Progress)
+
+Can persistent homology of loss landscape slices predict grokking onset before it happens?
+
+**Task:** Modular addition (mod 97) with a 1-layer transformer decoder (302K params). Full-batch AdamW, weight decay 0.03, 100K steps. Grokking occurs at ~40-80K steps depending on seed.
+
+**Method:** Same 2D slice-based PH as EXP-01 (50x50 grid, 5 slices, filter-normalized directions). Baselines include commutator defect (Dohmatob et al., 2026), sharpness (Hutchinson Hessian trace), spectral concentration, weight norm.
+
+**Pilot status:** 3/5 seeds complete. Calibration identified WD=0.03 as optimal (longest grokking delay). Three pipeline bugs discovered and fixed during pilot analysis (see EXPERIMENT_LOG.md). Awaiting re-analysis with corrected code before evaluating pilot gate.
+
+**Pilot gate:** At least one PH statistic must show consistent directional behavior across >= 3/5 seeds before grokking onset. If passed, full study: 30 seeds x 3 weight decay values = 90 runs.
+
+**Dashboard:** `python dashboard_exp04/app.py` -> http://localhost:5051
+
+---
+
 ## Setup
 
 ```bash
@@ -178,13 +194,15 @@ All resized to 32x32 for cross-architecture consistency.
 ## Project Structure
 
 ```
-configs/          57 YAML configs (19 architectures x 3 datasets)
-dashboard/        Flask dashboard with experiment queue and system monitor
+configs/               57 EXP-01 YAMLs + 10 ImageNet-100 + exp04_pilot.yaml
+dashboard/             Flask dashboard for EXP-01 (localhost:5050)
+dashboard_exp04/       Flask dashboard for EXP-04 (localhost:5051)
 experiments/
-  shared/         Datasets, models, baseline metrics, EWC, utilities
-  exp01_.../      Phase 1-5 scripts
-results/          Output (gitignored)
-data/             Datasets (gitignored, auto-downloaded)
+  shared/              Datasets, models, baseline metrics, EWC, SI, utilities
+  exp01_.../           EXP-01 Phase 1-7 scripts
+  exp04_.../           EXP-04 grokking topology (model, dataset, train, topology, baselines, pilot runner)
+results/               Output (gitignored)
+data/                  Datasets (gitignored, auto-downloaded)
 ```
 
 ## Methods

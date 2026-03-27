@@ -1,21 +1,24 @@
 # Axion Deep Labs — Research Experiments
 
 ## Overview
-Experimental codebase for three priority research experiments:
-- **EXP-01** (PERSIST): Topological Signatures of Knowledge Persistence — Preliminary COMPLETE, Phase I (HPC scale validation) PLANNED
-- **EXP-02** (PHI): Integrated Information Across Architectures — Planned
-- **EXP-03** (GENESIS): Bekenstein Bound Analogs — Planned
+Experimental codebase for research experiments:
+- **EXP-01** (PERSIST): Topological Signatures of Knowledge Persistence -- Preliminary COMPLETE, Phase I (HPC scale validation) PLANNED
+- **EXP-04** (Grokking Topology): Topological Dynamics of Grokking -- Pilot IN PROGRESS (3 bugs fixed 2026-03-26)
+- **EXP-02** (PHI): Integrated Information Across Architectures -- Planned
+- **EXP-03** (GENESIS): Bekenstein Bound Analogs -- Planned
 
 ## Structure
 ```
 experiments/
-  shared/              — Datasets (CIFAR-100, CUB-200, RESISC-45), models (19 archs), EWC, baseline metrics, utilities
-  exp01_.../           — Phase 1-5 scripts for topological persistence
-  exp02_.../           — Phi survey (planned)
-  exp03_.../           — Bekenstein analog (planned)
-configs/               — 57 YAML configs (19 architectures x 3 datasets)
-results/               — Output (gitignored, large files)
-dashboard/             — Flask web dashboard (localhost:5050), 3-dataset selector
+  shared/              -- Datasets (CIFAR-100, CUB-200, RESISC-45), models (19 archs), EWC, SI, baseline metrics, utilities
+  exp01_.../           -- Phase 1-7 scripts for topological persistence
+  exp04_.../           -- Grokking topology (model, dataset, train, topology, baselines, pilot runner, calibration)
+  exp02_.../           -- Phi survey (planned)
+  exp03_.../           -- Bekenstein analog (planned)
+configs/               -- 57 EXP-01 configs + 10 ImageNet-100 configs + exp04_pilot.yaml
+results/               -- Output (gitignored, large files)
+dashboard/             -- Flask web dashboard (localhost:5050), EXP-01 3-dataset selector
+dashboard_exp04/       -- Flask dashboard (localhost:5051), EXP-04 per-seed and cross-seed views
 ```
 
 ## Running Experiments
@@ -73,6 +76,45 @@ sacct -j <jobid> --format=JobID,Elapsed,State  # Completed job info
 - Module load hierarchy: `os/rhel_8` → `spack/2023a` → `gcc/12.2.0` → then python/cuda. But compute nodes don't need this — venv is self-contained.
 - SLURM partition is `normal` (not `gpu`) — GPU nodes are `discovery-g*` within the normal partition, requested via `--gres=gpu:1`
 
+## EXP-04 Current State (as of 2026-03-26)
+
+### Grokking Topology Pilot
+
+- **Question:** Does PH of loss landscape slices provide an early-warning signal for grokking?
+- **Task:** Modular addition (mod 97), 1-layer transformer decoder, d_model=128, 4 heads
+- **Training:** AdamW, full-batch, lr=1e-3, weight_decay=0.03, 100K steps
+- **Calibration:** WD=0.03 gives ~70K-step grokking delay (optimal for analysis)
+- **Dashboard:** `.venv/bin/python dashboard_exp04/app.py` -> http://localhost:5051
+
+### Pilot Status
+
+| Seed | Training | Topology | Baselines | Notes |
+|------|----------|----------|-----------|-------|
+| 42   | Done     | Done*    | Needs rerun | Onset: step 40K |
+| 137  | Done     | Done*    | Needs rerun | Onset: step 42K |
+| 256  | Done     | Done*    | Needs rerun | Onset: step 80.5K |
+| 1024 | Done     | Pending  | Pending     | |
+| 7777 | Not started | --   | --          | |
+
+*Topology data is forward-compatible (new fields added) but should be rerun for consistency.
+
+### Bugs Fixed (2026-03-26) -- All Seeds Need Re-Analysis
+
+1. **H0 feature count structurally constant (topology.py):** On a 50x50 grid, H0 count = n-1 = 2499 always. Added `h0_significant_count` (persistence > median) and `h0_median_persistence`. Primary endpoint changed to `h0_total_persistence`.
+2. **Commutator defect always zero (baselines.py):** Two bugs: (a) full-batch training meant only 1 batch, function returned 0. Fixed: synthetic random 50/50 splits of training data. (b) Hessian-vector product lacked `.detach()` on vector argument, making `d(ga.gb)/d(theta)` symmetric -- `Hab == Hba` by construction. Fixed: detach vector arg. After fix: commutator defect = 5414 at step 20K (was 0), shows dynamics peaking pre-grokking.
+3. **H1 essentially dead:** 50x50 grid too coarse for 1-cycles. Max H1 count = 1.2. Demoted to exploratory.
+
+### Re-Analysis Command
+```bash
+# Re-run analysis on existing checkpoints (no retraining needed)
+.venv/bin/python -m experiments.exp04_grokking_topology.run_pilot --config configs/exp04_pilot.yaml --skip-training
+```
+
+### Pilot Gate (after re-analysis)
+Criterion: at least 1 PH stat shows consistent directional behavior in >= 3/5 seeds before grokking onset. If met, proceed to full study (30 seeds x 3 WD values = 90 runs).
+
+---
+
 ## EXP-01 Current State (as of 2026-03-23)
 
 ### Preliminary Proof-of-Concept (COMPLETE — the "petri dish")
@@ -104,6 +146,7 @@ sacct -j <jobid> --format=JobID,Elapsed,State  # Completed job info
 - ClearML is disabled (`CLEARML_OFF=1`) — use dashboard instead
 - Baseline metrics (Hessian, Fisher, sharpness, barrier) computed alongside topology in Phase 2 (fail-safe: individual metric failures don't block results)
 - Update EXPERIMENT_LOG.md after each completed run
+- **ALWAYS build resume support into any long-running pipeline.** Save results incrementally after each step, load existing results on startup, skip completed steps. Call `gc.collect()` and `torch.cuda.empty_cache()` after each step. Use atomic writes (write to .tmp then os.replace). A killed process should lose at most one step of work, never the entire run.
 
 ## Vocab Lesson Plan
 Joshua is studying for an advanced AI/ML engineering exam. Vocabulary lesson plan with 10 words/day is maintained in `~/CLAUDE.md`. Current day tracked there. When Joshua asks to study or continue vocab, FIRST teach the words with explanations and analogies, THEN quiz him by asking him to define each word in his own words. Correct misconceptions. Only advance to the next day when he says he's ready.

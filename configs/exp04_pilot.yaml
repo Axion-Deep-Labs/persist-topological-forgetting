@@ -48,18 +48,20 @@ topology:
   n_slices: 5  # independent random directions per checkpoint, averaged
   direction_norm: filter  # filter-normalized random directions
 
-  # Primary endpoint
-  primary: h0_feature_count
+  # Primary endpoint (h0_feature_count is structurally constant = n-1 on grids)
+  primary: h0_total_persistence
 
   # Secondary endpoints
   secondary:
-    - h0_total_persistence
-    - h1_total_persistence
+    - h0_significant_count   # H0 features with persistence > median (replaces h0_feature_count)
     - h0_persistence_entropy
+    - h0_median_persistence
 
   # Exploratory only (logged, not used in primary analysis)
   exploratory:
-    - h1_feature_count
+    - h0_feature_count       # always 2499 on 50x50 grid (structural invariant, logged for documentation)
+    - h1_feature_count       # mostly zero at 50x50 resolution
+    - h1_total_persistence
     - h1_max_persistence
     - h1_persistence_entropy
 

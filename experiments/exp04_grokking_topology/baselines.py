@@ -60,53 +60,64 @@ def hessian_trace(model, dataloader, device, n_samples=10):
 def commutator_defect(model, dataloader, device, n_pairs=5):
     """Estimate commutator defect: ||grad_A grad_B - grad_B grad_A||.
 
-    Measures non-commutativity of gradient updates from different mini-batches.
+    Measures non-commutativity of gradient updates from different data subsets.
     Higher defect = more curved loss surface = potential pre-grokking signal.
 
     Per Dohmatob et al. (2026).
+
+    For full-batch training (1 batch in dataloader), we create synthetic
+    sub-batches via random splits. This does not affect training -- only
+    the diagnostic metric needs diverse subsets to measure non-commutativity.
     """
     criterion = nn.CrossEntropyLoss()
     model.eval()
 
-    batches = []
+    # Collect all data from the dataloader
+    all_x, all_y = [], []
     for x, y in dataloader:
-        batches.append((x.to(device), y.to(device)))
-        if len(batches) >= 2 * n_pairs:
-            break
+        all_x.append(x.to(device))
+        all_y.append(y.to(device))
+    all_x = torch.cat(all_x)
+    all_y = torch.cat(all_y)
 
-    if len(batches) < 2:
-        return {"commutator_defect": 0.0}
+    n_total = all_x.shape[0]
 
+    # Create random sub-batch pairs
     defects = []
-    for i in range(0, min(len(batches) - 1, 2 * n_pairs), 2):
-        x_a, y_a = batches[i]
-        x_b, y_b = batches[i + 1]
+    for _ in range(n_pairs):
+        perm = torch.randperm(n_total, device=device)
+        half = n_total // 2
+        x_a, y_a = all_x[perm[:half]], all_y[perm[:half]]
+        x_b, y_b = all_x[perm[half:half * 2]], all_y[perm[half:half * 2]]
 
-        # Grad from batch A
+        # Grad from subset A (with computation graph for Hessian)
         model.zero_grad()
         with sdpa_kernel(_MATH_ONLY):
             loss_a = criterion(model(x_a), y_a)
         grad_a = torch.autograd.grad(loss_a, model.parameters(), create_graph=True)
 
-        # Hessian-vector product: H * grad_b (approximates grad_a grad_b)
+        # Grad from subset B (with computation graph for Hessian)
         model.zero_grad()
         with sdpa_kernel(_MATH_ONLY):
             loss_b = criterion(model(x_b), y_b)
         grad_b = torch.autograd.grad(loss_b, model.parameters(), create_graph=True)
 
-        # grad_a^T H_b direction
-        dot_ab = sum((ga * gb).sum() for ga, gb in zip(grad_a, grad_b))
-        Hab = torch.autograd.grad(dot_ab, model.parameters(), retain_graph=True)
+        # H_A * g_B: Hessian of loss_A times gradient of loss_B
+        # MUST detach g_B so derivative only flows through H_A
+        v_b = [gb.detach() for gb in grad_b]
+        dot_HAgB = sum((ga * vb).sum() for ga, vb in zip(grad_a, v_b))
+        HAgB = torch.autograd.grad(dot_HAgB, model.parameters(), retain_graph=True)
 
-        # grad_b^T H_a direction
-        dot_ba = sum((gb * ga).sum() for gb, ga in zip(grad_b, grad_a))
-        Hba = torch.autograd.grad(dot_ba, model.parameters())
+        # H_B * g_A: Hessian of loss_B times gradient of loss_A
+        v_a = [ga.detach() for ga in grad_a]
+        dot_HBgA = sum((gb * va).sum() for gb, va in zip(grad_b, v_a))
+        HBgA = torch.autograd.grad(dot_HBgA, model.parameters())
 
-        # Commutator defect: ||Hab - Hba||
-        defect = sum(((hab - hba) ** 2).sum().item() for hab, hba in zip(Hab, Hba))
+        # Commutator defect: ||H_A * g_B - H_B * g_A||
+        defect = sum(((hagb - hbga) ** 2).sum().item() for hagb, hbga in zip(HAgB, HBgA))
         defects.append(np.sqrt(defect))
 
-        del grad_a, grad_b, Hab, Hba
+        del grad_a, grad_b, HAgB, HBgA
         if device.type == "cuda":
             torch.cuda.empty_cache()
 

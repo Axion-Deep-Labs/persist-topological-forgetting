@@ -19,6 +19,7 @@ Output:
 """
 
 import argparse
+import gc
 import os
 import sys
 import json
@@ -36,8 +37,30 @@ from experiments.exp04_grokking_topology.topology import compute_topology_at_che
 from experiments.exp04_grokking_topology.baselines import compute_all_baselines
 
 
+def _load_existing_results(path):
+    """Load existing results JSON and return (list, set of completed steps)."""
+    if os.path.exists(path):
+        with open(path) as f:
+            results = json.load(f)
+        completed = {r["step"] for r in results}
+        return results, completed
+    return [], set()
+
+
+def _save_json(path, data):
+    """Atomically save JSON (write tmp then rename)."""
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, path)
+
+
 def run_analysis_pass(cfg, seed, output_dir, device):
-    """Run PH and baseline computation on saved checkpoints for one seed."""
+    """Run PH and baseline computation on saved checkpoints for one seed.
+
+    Supports resume: loads existing results and skips already-computed steps.
+    Saves incrementally after each checkpoint to avoid losing progress on OOM/kill.
+    """
     run_dir = os.path.join(output_dir, f"seed_{seed}")
     ckpt_dir = os.path.join(run_dir, "checkpoints")
 
@@ -57,10 +80,20 @@ def run_analysis_pass(cfg, seed, output_dir, device):
     # Get checkpoint steps
     ckpt_steps = get_checkpoint_steps(cfg)
 
-    topology_results = []
-    baseline_results = []
+    # Resume support: load existing results and skip completed steps
+    topo_path = os.path.join(run_dir, "topology_metrics.json")
+    bl_path = os.path.join(run_dir, "baseline_metrics.json")
+    topology_results, topo_done = _load_existing_results(topo_path)
+    baseline_results, bl_done = _load_existing_results(bl_path)
+    # A step is fully done only if both topology and baselines are computed
+    done_steps = topo_done & bl_done
+    if done_steps:
+        print(f"  Resuming: {len(done_steps)}/{len(ckpt_steps)} steps already complete")
 
     for idx, step in enumerate(ckpt_steps):
+        if step in done_steps:
+            continue
+
         ckpt_path = os.path.join(ckpt_dir, f"step_{step:06d}.pt")
         if not os.path.exists(ckpt_path):
             print(f"  Skipping step {step} (no checkpoint)")
@@ -76,47 +109,54 @@ def run_analysis_pass(cfg, seed, output_dir, device):
                 break
 
         # --- Topology ---
-        print(f"  Computing topology (5 slices, 50x50 grid)...")
-        # Set slice RNG based on seed + step for reproducibility
-        set_seed(seed * 100000 + step)
-        t0 = time.time()
-        topo = compute_topology_at_checkpoint(model, ckpt_path, test_loader, cfg, device)
-        topo_time = time.time() - t0
-        topo_entry = {
-            "step": step,
-            "time_seconds": round(topo_time, 1),
-            **topo["averaged"],
-            "slice_variance": topo["slice_variance"],
-        }
-        topology_results.append(topo_entry)
-        print(f"    H0 count={topo['averaged']['h0_feature_count']:.1f} "
-              f"H0 pers={topo['averaged']['h0_total_persistence']:.4f} "
-              f"H1 pers={topo['averaged']['h1_total_persistence']:.4f} "
-              f"({topo_time:.1f}s)")
+        if step not in topo_done:
+            print(f"  Computing topology (5 slices, 50x50 grid)...")
+            set_seed(seed * 100000 + step)
+            t0 = time.time()
+            topo = compute_topology_at_checkpoint(model, ckpt_path, test_loader, cfg, device)
+            topo_time = time.time() - t0
+            topo_entry = {
+                "step": step,
+                "time_seconds": round(topo_time, 1),
+                **topo["averaged"],
+                "slice_variance": topo["slice_variance"],
+            }
+            topology_results.append(topo_entry)
+            print(f"    H0 pers={topo['averaged']['h0_total_persistence']:.1f} "
+                  f"H0 sig_count={topo['averaged']['h0_significant_count']:.0f} "
+                  f"H0 ent={topo['averaged']['h0_persistence_entropy']:.4f} "
+                  f"({topo_time:.1f}s)")
+            del topo
+        else:
+            print(f"  Topology already computed, skipping")
 
         # --- Baselines ---
-        print(f"  Computing baselines...")
-        model.load_state_dict(torch.load(ckpt_path, map_location=device, weights_only=True))
-        model.eval()
-        t0 = time.time()
-        baselines = compute_all_baselines(model, test_loader, device, metrics_log, metrics_idx)
-        bl_time = time.time() - t0
-        bl_entry = {"step": step, "time_seconds": round(bl_time, 1), **baselines}
-        baseline_results.append(bl_entry)
-        sharp = baselines.get('sharpness')
-        comm = baselines.get('commutator_defect')
-        sharp_str = f"{sharp:.4f}" if sharp is not None else "FAILED"
-        comm_str = f"{comm:.6f}" if comm is not None else "FAILED"
-        print(f"    sharpness={sharp_str} commutator={comm_str} ({bl_time:.1f}s)")
+        if step not in bl_done:
+            print(f"  Computing baselines...")
+            model.load_state_dict(torch.load(ckpt_path, map_location=device, weights_only=True))
+            model.eval()
+            t0 = time.time()
+            baselines = compute_all_baselines(model, test_loader, device, metrics_log, metrics_idx)
+            bl_time = time.time() - t0
+            bl_entry = {"step": step, "time_seconds": round(bl_time, 1), **baselines}
+            baseline_results.append(bl_entry)
+            sharp = baselines.get('sharpness')
+            comm = baselines.get('commutator_defect')
+            sharp_str = f"{sharp:.4f}" if sharp is not None else "FAILED"
+            comm_str = f"{comm:.6f}" if comm is not None else "FAILED"
+            print(f"    sharpness={sharp_str} commutator={comm_str} ({bl_time:.1f}s)")
+            del baselines
+        else:
+            print(f"  Baselines already computed, skipping")
 
-    # Save results
-    topo_path = os.path.join(run_dir, "topology_metrics.json")
-    with open(topo_path, "w") as f:
-        json.dump(topology_results, f, indent=2)
+        # Save incrementally after each checkpoint
+        _save_json(topo_path, topology_results)
+        _save_json(bl_path, baseline_results)
 
-    bl_path = os.path.join(run_dir, "baseline_metrics.json")
-    with open(bl_path, "w") as f:
-        json.dump(baseline_results, f, indent=2)
+        # Free memory
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     print(f"\n  Saved topology metrics to {topo_path}")
     print(f"  Saved baseline metrics to {bl_path}")

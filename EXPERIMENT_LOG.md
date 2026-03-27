@@ -1,5 +1,94 @@
 # Experiment Log
 
+## EXP-04: Topological Dynamics of Grokking
+
+### Current State (2026-03-26)
+
+**Pilot in progress. 3 critical bugs fixed. All seeds need re-analysis.**
+
+---
+
+### Calibration Sweep (2026-03-25)
+
+Tested weight decay [0.01, 0.03, 0.1, 0.3] on mod-97 addition, 1-layer transformer decoder (302K params), 100K steps.
+
+| WD | Memorization | Generalization | Delay | Accepted |
+|----|-------------|----------------|-------|----------|
+| 0.01 | Step 500 | Never | -- | NO (pure memorization) |
+| **0.03** | **Step 500** | **Step 70,500** | **70K** | **YES (optimal)** |
+| 0.1 | Step 500 | Step 13,000 | 12.5K | YES (too fast) |
+| 0.3 | Step 500 | Step 4,000 | 3.5K | YES (way too fast) |
+
+Selected WD=0.03 for pilot (longest delay = most pre-grokking data).
+
+---
+
+### Pilot Runs (2026-03-25 to 2026-03-26)
+
+| Seed | Training | Topology | Baselines | Grokking Onset |
+|------|----------|----------|-----------|----------------|
+| 42 | Done | Done* | Needs rerun | Step 40,000 |
+| 137 | Done | Done* | Needs rerun | Step 42,000 |
+| 256 | Done | Done* | Needs rerun | Step 80,500 |
+| 1024 | Done | Pending | Pending | (test_acc=1.0) |
+| 7777 | Not started | -- | -- | -- |
+
+*Topology data forward-compatible (new fields added) but baselines must be recomputed.
+
+---
+
+### Bugs Found and Fixed (2026-03-26)
+
+**Bug 1: H0 feature count structurally constant (topology.py)**
+- On a 50x50 grid (n=2500), lower-star filtration always produces exactly n-1 = 2499 finite H0 bars. This is a topological invariant of the grid graph, independent of function values.
+- **Fix:** Added `h0_significant_count` (H0 features with persistence > median) and `h0_median_persistence`. Changed primary endpoint from `h0_feature_count` to `h0_total_persistence`.
+- **Impact:** Primary endpoint was dead by construction. New endpoint shows 700x dynamic range across training (seed 256: 14K to 10.2M).
+
+**Bug 2: Commutator defect always zero (baselines.py)**
+- Two independent bugs:
+  - (a) Full-batch training gave 1 batch to the dataloader. The function needed >= 2 batches and returned 0. **Fix:** Collect all data, create synthetic 50/50 random splits for sub-batch pairs.
+  - (b) Hessian-vector product lacked `.detach()` on vector argument. `dot_ab = sum(ga * gb)` is symmetric since both ga and gb have `create_graph=True`. Derivative flows through both terms, giving `d(ga.gb)/d(theta) = H_A*g_B + H_B*g_A` on both sides, making `Hab == Hba` identically. **Fix:** Detach the vector argument: `v_b = [gb.detach() for gb in grad_b]`.
+  - **Note:** Bug (b) was present in the original code and would have produced zeros even with multiple batches.
+- **After fix:** Commutator defect shows clear dynamics: 2.68 (step 0) -> 25,942 (step 30K, pre-grokking peak) -> 327 (step 40K, post-onset) -> 0 (step 50K) -> 1,262 (step 80K, late instability).
+
+**Bug 3: H1 essentially dead**
+- 50x50 grid is too coarse for meaningful 1-cycle detection. Max H1 feature count across all seeds: 1.2 (averaged across slices). Only ~10/81 checkpoints had any H1 features.
+- **Fix:** Demoted H1 endpoints to exploratory in config and DESIGN.md. Future option: increase grid to 100x100 (4x compute per checkpoint).
+
+---
+
+### Preliminary Signal Assessment (Pre-Fix Data, Informative for Topology Only)
+
+**H0 total persistence (new primary):**
+- Seed 42 (onset 40K): 14K -> 37K (slow rise, memorization) -> 26K (grokking) -> 2.3M (post-grokking explosion)
+- Seed 137 (onset 42K): 14K -> 39K (memorization) -> 33K (grokking) -> 4.3M (post-grokking)
+- Seed 256 (onset 80.5K): 14K -> 39K -> 10.2M (massive pre-grokking explosion at 46K) -> 1M (onset) -> 355K (post)
+- Signal: H0 persistence shows massive dynamic range (700x) but timing relative to onset varies. Seed 256's explosion precedes grokking. Seeds 42/137 explode after.
+
+**H0 persistence entropy:**
+- Consistent slow decrease across all seeds: 7.816 -> ~7.65-7.72
+- Represents increasing dominance of a few large persistence bars
+
+**Sharpness (Hessian trace):**
+- Strongly negative during memorization (saddle-dominated landscape)
+- Transitions positive during pre-grokking period
+- Returns to near-zero post-grokking
+- Shows clear pre-onset dynamics
+
+**Commutator defect (after fix):**
+- Spikes during pre-grokking transition, drops post-onset
+- Need full re-analysis to confirm cross-seed consistency
+
+---
+
+### Next Steps
+1. Re-analyze all seeds: `.venv/bin/python -m experiments.exp04_grokking_topology.run_pilot --config configs/exp04_pilot.yaml --skip-training`
+2. Run seed 7777 (full pipeline)
+3. Evaluate pilot gate: consistent directional PH behavior in >= 3/5 seeds before onset
+4. If gate passes: full study (30 seeds x 3 WD = 90 runs, ~12 days on RTX 4090)
+
+---
+
 ## EXP-01: Topological Persistence
 
 ### Current State
