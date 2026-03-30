@@ -45,6 +45,18 @@ if [[ "$CONFIG" == *"imagenet100"* ]] && [[ "$PHASE" == "phase1" ]]; then
     PRETRAINED_FLAG="--pretrained"
 fi
 
+# Auto-reduce batch size for large models during SI/EWC phases
+BATCH_FLAG=""
+if [[ "$PHASE" == "phase3" ]] && [[ "$EXTRA_ARGS" == *"--ewc"* || "$EXTRA_ARGS" == *"--si"* ]]; then
+    if [[ "$CONFIG" == *"convnext_large"* || "$CONFIG" == *"convnext_base"* || \
+          "$CONFIG" == *"vit_l_16"* || "$CONFIG" == *"vit_h_14"* || \
+          "$CONFIG" == *"vit_b_16"* || "$CONFIG" == *"wrn4010"* || \
+          "$CONFIG" == *"efficientnet_b5"* ]]; then
+        BATCH_FLAG="--si-batch-size 32"
+        echo "Auto-reducing SI/EWC batch size to 32 for large model"
+    fi
+fi
+
 echo "============================================"
 echo "Job: $SLURM_JOB_ID"
 echo "Config: $CONFIG"
@@ -55,9 +67,10 @@ echo "GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || ec
 echo "Date: $(date)"
 echo "============================================"
 
-python -m experiments.exp01_topological_persistence.${MODULE} \
+/fs1/scratch/cag1145/persist-env/bin/python -m experiments.exp01_topological_persistence.${MODULE} \
     --config ${CONFIG} \
     ${PRETRAINED_FLAG} \
+    ${BATCH_FLAG} \
     ${EXTRA_ARGS}
 
 EXIT_CODE=$?

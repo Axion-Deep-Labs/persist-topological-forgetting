@@ -63,6 +63,8 @@ def main():
                         help="SI penalty weight (default: 1000, comparable to EWC lambda)")
     parser.add_argument("--lr-schedule", choices=["constant", "cosine"], default="constant",
                         help="LR schedule for Task B training (default: constant)")
+    parser.add_argument("--si-batch-size", type=int, default=256,
+                        help="Batch size for SI/EWC importance computation (reduce for large models, default: 256)")
     args = parser.parse_args()
 
     if args.ewc and args.si:
@@ -108,7 +110,7 @@ def main():
 
     # Data
     data = get_split_dataset(cfg)
-    task_a_train, task_a_test = data.get_task_a(batch_size=256)
+    task_a_train, task_a_test = data.get_task_a(batch_size=args.si_batch_size)
     task_b_train, task_b_test = data.get_task_b(batch_size=train_cfg["batch_size"])
 
     print(f"  Task A test: {len(task_a_test.dataset)} samples")
