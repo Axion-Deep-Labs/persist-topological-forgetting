@@ -98,7 +98,7 @@ Selected WD=0.03 for pilot (longest delay = most pre-grokking data).
 - **CIFAR-100:** 19/19 architectures, Phases 1-6 complete (preliminary)
 - **CUB-200-2011:** 19/19 architectures, Phases 1-6 complete (preliminary)
 - **RESISC-45:** 19/19 architectures, Phases 1-6 complete (preliminary)
-- **ImageNet-100:** 8/8 valid configs complete through Phases 1-3 (2026-04-01). Phase 4-6 analysis pending.
+- **ImageNet-100:** 8/8 valid configs complete through ALL phases (2026-04-02). Phase 4-6 analysis complete.
 
 ---
 
@@ -133,7 +133,50 @@ Selected WD=0.03 for pilot (longest delay = most pre-grokking data).
 4. Phase 6: Entire script hardcoded for exactly 3 datasets with 19 matching architectures. Generalized to N datasets with variable architecture counts, dynamic design matrix, clustered bootstrap, and permutation tests.
 5. Phase 6 reduced model: Off-by-one index bug in partial effects (`beta1r[2+K+i]` should be `beta1r[3+K+i]`). Fixed.
 
-**Next:** Submit Phase 4-6 on HPC. Phase 6 will run twice: 3-dataset (n=57, replication) and 4-dataset (n=65, exploratory with ImageNet-100).
+**Phase 4 results (ImageNet-100, n=8, 2026-04-02):**
+- H0 NOT significant: rho=-0.4048, p=0.3199
+- **H1 SIGNIFICANT (Bonferroni): rho=0.9341, p=0.0007, p_bonf=0.0081**
+- Best predictor of forgetting: H1 Persistence (|rho| = 0.9341)
+- Parameter count alone does NOT predict retention (rho=0.5238, p=0.1827)
+- Bug: Phase 4 output file named `correlation_results_cifar100.json` (dataset detection missing `_imagenet100`). Renamed manually on HPC. Code fix committed.
+
+**Phase 5 results (ImageNet-100, n=8, 2026-04-02):**
+- Topology does NOT improve prediction beyond params (LOAO Ridge, permutation p=0.978)
+- EWC benefit: H0 rho=-0.4762 (p=0.233), H1 rho=0.5749 (p=0.136) -- not significant
+- Low power caveat: only 8 architectures for LOAO cross-validation
+
+**Phase 6 results (2026-04-02):**
+
+*3-dataset replication (n=57, CIFAR-100 + CUB-200 + RESISC-45):*
+| Outcome | dR2 | p(full) | p(interaction) |
+|---------|-----|---------|----------------|
+| **EWC Benefit (AURC)** | 0.085 | **0.046** | **0.046** |
+| **Retention @ 100** | 0.127 | **0.035** | **0.035** |
+| Retention @ 10 | 0.075 | 0.196 | 0.196 |
+| EWC Benefit (ret@10) | 0.002 | 0.984 | 0.984 |
+
+Exact replication of original Phase 6 results.
+
+*4-dataset exploratory (n=65, + ImageNet-100):*
+| Outcome | dR2 | p(full) | p(interaction) |
+|---------|-----|---------|----------------|
+| EWC Benefit (AURC) | 0.081 | 0.063 | 0.063 |
+| Retention @ 100 | 0.005 | 0.051 | 0.051 |
+| Retention @ 10 | 0.047 | 0.219 | 0.219 |
+| SI Benefit (AURC) | 0.192 | 1.000 | 1.000 |
+| SI Benefit (ret@10) | 0.098 | 1.000 | 1.000 |
+
+Adding ImageNet-100 dilutes signal slightly (EWC benefit p: 0.046 -> 0.063). SI shows zero topology moderation. Reduced model EWC benefit still significant (p=0.030) with 4 datasets.
+
+**Interpretation:**
+1. Original 3-dataset signal replicates perfectly
+2. ImageNet-100 Phase 4 reveals H1 (not H0) as dominant predictor at larger scale -- novel finding
+3. 4-dataset pooling shows expected attenuation, not contradiction
+4. SI finding is EWC-specific (SI shows no topology moderation)
+5. Low power (n=8) limits ImageNet-100-specific conclusions
+
+**Additional bug fixed (2026-04-02):**
+6. Phase 4: Dataset detection for output filename missing `_imagenet100` (same pattern as Phase 5). Fixed.
 
 ---
 

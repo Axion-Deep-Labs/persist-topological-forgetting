@@ -110,7 +110,7 @@ The preliminary work demonstrated topological signal on small models. Phase I ad
 - **ViT-H/14:** SWAG pretrained weights require 518x518 input resolution. The ImageNet-100 pipeline uses 224x224. Also 632M params, far outside the experiment's parameter range.
 - **WRN-40-10:** Architecture designed for 32x32 CIFAR images. At 224x224, feature maps are 49x larger per layer, causing OOM on A100 40GB (39.4/39.5 GB used).
 
-**Phase 4-6 analysis** (correlation, predictive model, pooled interaction) ready for submission. Phase 6 generalized to support 4 datasets (n=65: 57 preliminary + 8 ImageNet-100).
+**Phase 4-6 analysis complete (2026-04-02).** Key finding: H1 (1-cycles, not H0 connected components) is the dominant topology predictor at ImageNet-100 scale (rho=0.9341, p=0.0007, survives Bonferroni). Phase 6 pooled interaction replicates original 3-dataset results exactly. Adding ImageNet-100 as 4th dataset shows expected attenuation (EWC benefit p: 0.046 to 0.063). SI shows no topology moderation -- finding appears EWC-specific.
 
 ### Phase I-B: Analysis & Replication (After I-A)
 

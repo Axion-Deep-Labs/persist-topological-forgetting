@@ -1241,6 +1241,8 @@ def cross_architecture_analysis(result_dirs):
         dataset_tag = "_cub200"
     elif first_label.endswith("_resisc45"):
         dataset_tag = "_resisc45"
+    elif first_label.endswith("_imagenet100"):
+        dataset_tag = "_imagenet100"
     else:
         dataset_tag = "_cifar100"
     out_path = os.path.join(os.path.dirname(result_dirs[0]), f"correlation_results{dataset_tag}.json")

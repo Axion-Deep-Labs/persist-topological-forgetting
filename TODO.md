@@ -13,7 +13,8 @@
 - [ ] **EXP-04 seed 7777:** Needs full run (training + analysis).
 - [ ] **EXP-04 pilot gate:** After re-analysis, check if any PH stat shows consistent directional behavior in >= 3/5 seeds before grokking onset. If yes, proceed to full study.
 - [x] **PERSIST Phase I-A training:** 8/8 valid ImageNet-100 configs complete through Phases 1-3 (2026-04-01). ViT-H/14 and WRN-40-10 dropped.
-- [ ] **PERSIST Phase I-A analysis:** Submit Phase 4 (correlation), Phase 5 (predictive model), Phase 6 (pooled interaction) on HPC. Phase 6 runs twice: 3-dataset (n=57) and 4-dataset (n=65).
+- [x] **PERSIST Phase I-A analysis:** Phase 4-6 complete on HPC (2026-04-02). H1 dominant at scale, 3-dataset replicates, SI null.
+- [ ] **PERSIST Phase I-B:** Pre-registered replication. 50-100+ architectures, longer task sequences, investigate H1 signal at scale.
 - [ ] **Demo sites:** Host Pastaggio's, UMO BBQ, BobBea's demos on demo.axiondeepdigital.com. Reach out to owners.
 - [ ] **Reddit:** Day 3 (Mar 26) -- r/SEO, 3 helpful comments.
 - [ ] **Quora:** 1 answer per day on SEO/website/audit questions (no links for first 3-5 answers).

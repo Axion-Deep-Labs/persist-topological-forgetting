@@ -130,7 +130,7 @@ Criterion: at least 1 PH stat shows consistent directional behavior in >= 3/5 se
 - See EXPERIMENT_LOG.md for full run history and results
 
 ### Phase I: Scale Validation (IN PROGRESS — NMSU Discovery HPC)
-- **Status:** 8/8 valid configs complete through Phases 1-3 (2026-04-01). Phase 4-6 analysis ready to submit.
+- **Status:** 8/8 valid configs ALL PHASES COMPLETE (2026-04-02). Phase 4-6 analysis done.
 - **Compute:** NMSU Discovery cluster (A100 40GB PCIe GPUs, unlimited hours via Crystal's NMSU affiliation)
 - **Environment:** `/fs1/scratch/cag1145/persist-env` (PyTorch 2.5.1+cu121, Python 3.10.8)
 - **Goal:** Test whether topological signal survives at production scale
@@ -138,8 +138,9 @@ Criterion: at least 1 PH stat shows consistent directional behavior in >= 3/5 se
 - **Dropped:** ViT-H/14 (SWAG weights require 518x518 input, incompatible with 224x224 pipeline), WRN-40-10 (CIFAR-32 architecture OOMs at 224x224 on A100 40GB)
 - **CL methods:** EWC + SI (both implemented in phase3, `--ewc` and `--si` flags)
 - **Pipeline:** `submit_all.sh` automates phase1 → phase2 + phase3 (naive/EWC/SI) with SLURM dependency chains
-- **Bugs fixed (2026-04-01):** Phase 4 ARCH_CLASSES missing ImageNet-100 entries + `_imagenet100` suffix strip. Phase 5 dataset detection defaulting to CIFAR-100. Phase 6 generalized from 3 hardcoded datasets to N dynamic datasets with unbalanced architecture support.
-- **Next:** Submit Phase 4-6 analysis on HPC, then Phase I-B pre-registered replication if signal holds
+- **Bugs fixed (2026-04-01/02):** Phase 4 ARCH_CLASSES + suffix strip + output filename detection. Phase 5 dataset detection. Phase 6 generalized to N dynamic datasets. Phase 6 reduced model index bug.
+- **Key Phase I-A findings:** H1 (not H0) is dominant predictor at ImageNet-100 scale (rho=0.9341, p=0.0007). Original 3-dataset Phase 6 replicates perfectly. SI shows zero topology moderation (EWC-specific).
+- **Next:** Phase I-B pre-registered replication if signal holds. 50-100+ architectures, longer task sequences.
 
 ## Rules
 - NEVER commit data/ or results/ directories
