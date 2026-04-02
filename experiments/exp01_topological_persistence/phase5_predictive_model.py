@@ -496,6 +496,8 @@ def main():
         dataset_label = "CUB-200"
     elif first_label.endswith("_resisc45"):
         dataset_label = "RESISC-45"
+    elif first_label.endswith("_imagenet100"):
+        dataset_label = "ImageNet-100"
     else:
         dataset_label = "CIFAR-100"
 

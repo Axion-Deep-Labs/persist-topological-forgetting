@@ -7,18 +7,19 @@ Tests two claims with formal inferential statistics:
   Supports both EWC and SI (Zenke et al., 2017) benefit as outcome variables.
 
 Design:
-  - Pooled n=57 (19 architectures x 3 datasets)
-  - OLS with clustered bootstrap (19 architecture blocks) for CIs
+  - Pools records across N datasets (auto-discovered from Phase 4 JSONs)
+  - Supports unbalanced designs (different architectures per dataset)
+  - OLS with clustered bootstrap (architecture blocks) for CIs
   - Permutation tests (H0 shuffled within dataset) for interaction block
   - CIFAR-100 as reference category
 
-Models:
-  M0: Y ~ log_params + dataset + log_params x dataset
-  M1: Y ~ log_params + H0z + dataset + log_params x dataset + H0z x dataset
+Models (K = N-1 non-reference datasets):
+  M0: Y ~ log_params + dataset + log_params x dataset       (1 + 2K features)
+  M1: Y ~ M0 + H0z + H0z x dataset                          (2 + 3K features)
 
 Tests:
-  Primary: block test of {H0z, H0z x CUB, H0z x RESISC} (does topology help at all?)
-  Secondary: block test of {H0z x CUB, H0z x RESISC} (does dataset moderate topology?)
+  Primary: block test of {H0z, H0z x ds_1, ..., H0z x ds_K} (does topology help at all?)
+  Secondary: block test of {H0z x ds_1, ..., H0z x ds_K}     (does dataset moderate topology?)
 
 Reads Phase 4 correlation JSONs as single source of truth.
 """
@@ -35,46 +36,57 @@ from scipy import stats
 N_BOOTSTRAP = 5000
 N_PERMUTATIONS = 1000
 VIF_THRESHOLD = 10.0
-DATASETS = ["cifar100", "cub200", "resisc45"]
-DATASET_LABELS = {"cifar100": "CIFAR-100", "cub200": "CUB-200", "resisc45": "RESISC-45"}
+DEFAULT_DATASETS = ["cifar100", "cub200", "resisc45", "imagenet100"]
+DATASET_LABELS = {
+    "cifar100": "CIFAR-100", "cub200": "CUB-200",
+    "resisc45": "RESISC-45", "imagenet100": "ImageNet-100",
+}
 REFERENCE_DATASET = "cifar100"
 
 
-def load_phase4_data(results_dir: Path):
-    """Load and validate Phase 4 correlation JSONs for all 3 datasets."""
-    records = []
-    arch_names_by_dataset = {}
+def load_phase4_data(results_dir: Path, datasets=None):
+    """Load and validate Phase 4 correlation JSONs for all available datasets."""
+    if datasets is None:
+        datasets = DEFAULT_DATASETS
 
-    for ds in DATASETS:
+    # Auto-discover: only include datasets that have Phase 4 output
+    available = []
+    for ds in datasets:
         fpath = results_dir / f"correlation_results_{ds}.json"
-        if not fpath.exists():
-            print(f"ERROR: Missing {fpath}")
-            sys.exit(1)
+        if fpath.exists():
+            available.append(ds)
+    if not available:
+        print(f"ERROR: No correlation_results_*.json found in {results_dir}")
+        sys.exit(1)
 
+    records = []
+    arch_counts = {}
+
+    for ds in available:
+        fpath = results_dir / f"correlation_results_{ds}.json"
         with open(fpath) as f:
             data = json.load(f)
 
         per_arch = data["per_architecture"]
-        if len(per_arch) != 19:
-            print(f"ERROR: {ds} has {len(per_arch)} architectures, expected 19")
-            sys.exit(1)
+        n_arch = len(per_arch)
+        arch_counts[ds] = n_arch
+        if n_arch < 3:
+            print(f"WARNING: {ds} has only {n_arch} architectures (need >= 3 for meaningful analysis)")
 
         arch_names = [a["arch_name"] for a in per_arch]
-        arch_names_by_dataset[ds] = arch_names
 
         # Load EWC benefits (pre-computed in correlations.ewc_benefit)
         ewc_section = data.get("correlations", {}).get("ewc_benefit", {})
-        ewc_benefits = ewc_section.get("benefits", [None] * 19)
+        ewc_benefits = ewc_section.get("benefits", [None] * n_arch)
         ewc_arch_names = ewc_section.get("architectures", arch_names)
 
-        # Build EWC benefit lookup by architecture name
         ewc_lookup = {}
         for name, benefit in zip(ewc_arch_names, ewc_benefits):
             ewc_lookup[name] = benefit
 
         # Load SI benefits (pre-computed in correlations.si_benefit)
         si_section = data.get("correlations", {}).get("si_benefit", {})
-        si_benefits = si_section.get("benefits", [None] * 19)
+        si_benefits = si_section.get("benefits", [None] * n_arch)
         si_arch_names = si_section.get("architectures", arch_names)
 
         si_lookup = {}
@@ -86,14 +98,12 @@ def load_phase4_data(results_dir: Path):
             ewc_benefit = ewc_lookup.get(name)
             si_benefit = si_lookup.get(name)
 
-            # Compute EWC benefit for ret@10 as absolute difference
             ewc_ret10 = arch.get("ewc_ret_10")
             naive_ret10 = arch.get("ret_10")
             ewc_benefit_ret10 = None
             if ewc_ret10 is not None and naive_ret10 is not None:
                 ewc_benefit_ret10 = ewc_ret10 - naive_ret10
 
-            # Compute SI benefit for ret@10
             si_ret10 = arch.get("si_ret_10")
             si_benefit_ret10 = None
             if si_ret10 is not None and naive_ret10 is not None:
@@ -108,21 +118,11 @@ def load_phase4_data(results_dir: Path):
                 "ret_10": arch["ret_10"],
                 "retention_100": arch["retention_100"],
                 "early_aurc": arch["early_aurc"],
-                "ewc_benefit_aurc": ewc_benefit,  # ewc_early_aurc - early_aurc
+                "ewc_benefit_aurc": ewc_benefit,
                 "ewc_benefit_ret10": ewc_benefit_ret10,
-                "si_benefit_aurc": si_benefit,     # si_early_aurc - early_aurc
+                "si_benefit_aurc": si_benefit,
                 "si_benefit_ret10": si_benefit_ret10,
             })
-
-    # Validate: same 19 architecture names across all datasets
-    ref_names = sorted(arch_names_by_dataset[REFERENCE_DATASET])
-    for ds in DATASETS:
-        ds_names = sorted(arch_names_by_dataset[ds])
-        if ds_names != ref_names:
-            print(f"ERROR: Architecture mismatch between {REFERENCE_DATASET} and {ds}")
-            print(f"  {REFERENCE_DATASET}: {ref_names}")
-            print(f"  {ds}: {ds_names}")
-            sys.exit(1)
 
     # Validate: log_params matches across datasets for same architecture
     params_by_arch = {}
@@ -134,35 +134,43 @@ def load_phase4_data(results_dir: Path):
             print(f"WARNING: {name} has different param counts across datasets "
                   f"({params_by_arch[name]} vs {r['num_params']}). Using first.")
 
-    print(f"Loaded {len(records)} records (19 architectures x 3 datasets)")
-    print(f"Architecture names: {ref_names}")
-    return records
+    n_unique_archs = len(set(r["arch_name"] for r in records))
+    ds_summary = ", ".join(f"{DATASET_LABELS.get(ds, ds)}({arch_counts[ds]})" for ds in available)
+    print(f"Loaded {len(records)} records ({n_unique_archs} unique architectures x {len(available)} datasets)")
+    print(f"Datasets: {ds_summary}")
+    return records, available
 
 
-def build_design_matrix(records, outcome_key, standardize_h0=True, standardize_params="global"):
+def build_design_matrix(records, outcome_key, active_datasets, standardize_h0=True,
+                        standardize_params="global"):
     """Build the pooled design matrix and outcome vector.
 
-    Returns X_m0 (M0 features), X_m1 (M1 features), y, feature_names_m0, feature_names_m1,
-    arch_indices (for clustering), and dataset labels.
+    Dynamically generates dataset dummies and interactions for N datasets.
+    Layout:
+      M0: log_params, [K dummies], [K lp×dataset interactions]  (1 + 2K features)
+      M1: log_params, H0z, [K dummies], [K lp×dataset], [K H0z×dataset]  (2 + 3K features)
+    where K = len(active_datasets) - 1 (reference dataset excluded).
+
+    Returns X_m0, X_m1, y, names_m0, names_m1, arch_indices, h0z, datasets, non_ref_datasets.
     """
+    non_ref = [ds for ds in active_datasets if ds != REFERENCE_DATASET]
+    K = len(non_ref)
     n = len(records)
 
-    # Outcome
     y = np.array([r[outcome_key] for r in records], dtype=np.float64)
 
-    # Log params
     log_params = np.log(np.array([r["num_params"] for r in records], dtype=np.float64))
     if standardize_params == "global":
-        log_params = (log_params - log_params.mean()) / log_params.std()
+        lp_std = log_params.std()
+        if lp_std > 0:
+            log_params = (log_params - log_params.mean()) / lp_std
 
-    # H0
     h0_raw = np.array([r["H0"] for r in records], dtype=np.float64)
     datasets = [r["dataset"] for r in records]
 
     if standardize_h0:
-        # Within-dataset z-score
         h0z = np.zeros(n)
-        for ds in DATASETS:
+        for ds in active_datasets:
             mask = np.array([d == ds for d in datasets])
             vals = h0_raw[mask]
             if vals.std() > 0:
@@ -172,32 +180,47 @@ def build_design_matrix(records, outcome_key, standardize_h0=True, standardize_p
     else:
         h0z = h0_raw.copy()
 
-    # Dataset dummies (CIFAR as reference)
-    d_cub = np.array([1.0 if d == "cub200" else 0.0 for d in datasets])
-    d_resisc = np.array([1.0 if d == "resisc45" else 0.0 for d in datasets])
-
-    # Interactions
-    lp_x_cub = log_params * d_cub
-    lp_x_resisc = log_params * d_resisc
-    h0_x_cub = h0z * d_cub
-    h0_x_resisc = h0z * d_resisc
+    # Dataset dummies (reference excluded)
+    dummies = {}
+    for ds in non_ref:
+        dummies[ds] = np.array([1.0 if d == ds else 0.0 for d in datasets])
 
     # Architecture indices for clustering
     arch_names = sorted(set(r["arch_name"] for r in records))
     arch_map = {name: i for i, name in enumerate(arch_names)}
     arch_indices = np.array([arch_map[r["arch_name"]] for r in records])
 
-    # M0: log_params, d_cub, d_resisc, lp_x_cub, lp_x_resisc
-    X_m0 = np.column_stack([log_params, d_cub, d_resisc, lp_x_cub, lp_x_resisc])
-    names_m0 = ["log_params", "d_CUB", "d_RESISC", "log_params×CUB", "log_params×RESISC"]
+    # Build M0: log_params, [dummies], [lp × dummies]
+    m0_cols = [log_params]
+    names_m0 = ["log_params"]
+    for ds in non_ref:
+        label = DATASET_LABELS.get(ds, ds)
+        m0_cols.append(dummies[ds])
+        names_m0.append(f"d_{label}")
+    for ds in non_ref:
+        label = DATASET_LABELS.get(ds, ds)
+        m0_cols.append(log_params * dummies[ds])
+        names_m0.append(f"log_params×{label}")
+    X_m0 = np.column_stack(m0_cols)
 
-    # M1: M0 + h0z, h0_x_cub, h0_x_resisc
-    X_m1 = np.column_stack([log_params, h0z, d_cub, d_resisc, lp_x_cub, lp_x_resisc,
-                            h0_x_cub, h0_x_resisc])
-    names_m1 = ["log_params", "H0z", "d_CUB", "d_RESISC", "log_params×CUB", "log_params×RESISC",
-                "H0z×CUB", "H0z×RESISC"]
+    # Build M1: log_params, H0z, [dummies], [lp × dummies], [H0z × dummies]
+    m1_cols = [log_params, h0z]
+    names_m1 = ["log_params", "H0z"]
+    for ds in non_ref:
+        label = DATASET_LABELS.get(ds, ds)
+        m1_cols.append(dummies[ds])
+        names_m1.append(f"d_{label}")
+    for ds in non_ref:
+        label = DATASET_LABELS.get(ds, ds)
+        m1_cols.append(log_params * dummies[ds])
+        names_m1.append(f"log_params×{label}")
+    for ds in non_ref:
+        label = DATASET_LABELS.get(ds, ds)
+        m1_cols.append(h0z * dummies[ds])
+        names_m1.append(f"H0z×{label}")
+    X_m1 = np.column_stack(m1_cols)
 
-    return X_m0, X_m1, y, names_m0, names_m1, arch_indices, h0z, datasets
+    return X_m0, X_m1, y, names_m0, names_m1, arch_indices, h0z, datasets, non_ref
 
 
 def ols_fit(X, y):
@@ -236,15 +259,14 @@ def incremental_f_stat(sse_reduced, sse_full, df_extra, df_resid_full):
     return max(f_stat, 0.0)
 
 
-def clustered_bootstrap(X_m0, X_m1, y, arch_indices, n_boot=5000, rng=None):
-    """Clustered bootstrap resampling 19 architecture blocks.
+def clustered_bootstrap(X_m0, X_m1, y, arch_indices, K, n_boot=5000, rng=None):
+    """Clustered bootstrap resampling architecture blocks.
 
-    Returns bootstrap distributions of:
-    - M1 coefficients
-    - Incremental F (M0 vs M1, full block)
-    - Incremental F (M1-no-interaction vs M1, interaction block only)
-    - Partial R2 of H0 block
-    - Per-dataset partial effects of H0z
+    K = number of non-reference datasets.
+    M1 layout: [log_params, H0z, K dummies, K lp×ds, K H0z×ds] = 2+3K features.
+    M1 without H0z interactions: first 2+2K columns.
+
+    Returns bootstrap distributions of coefficients, F-stats, partial R2, partial effects.
     """
     if rng is None:
         rng = np.random.default_rng(42)
@@ -252,18 +274,19 @@ def clustered_bootstrap(X_m0, X_m1, y, arch_indices, n_boot=5000, rng=None):
     unique_archs = np.unique(arch_indices)
     n_archs = len(unique_archs)
     n_features_m1 = X_m1.shape[1]
+    n_no_int = 2 + 2 * K  # columns before H0z interactions
+    n_datasets = K + 1  # including reference
 
-    # Storage
     coef_boot = np.zeros((n_boot, n_features_m1 + 1))  # +1 for intercept
     f_full_block_boot = np.zeros(n_boot)
     f_interaction_block_boot = np.zeros(n_boot)
     partial_r2_boot = np.zeros(n_boot)
-    # Per-dataset partial effects: H0z effect on each dataset
-    # CIFAR = beta_H0z, CUB = beta_H0z + beta_H0z×CUB, RESISC = beta_H0z + beta_H0z×RESISC
-    partial_effects_boot = np.zeros((n_boot, 3))
+    partial_effects_boot = np.zeros((n_boot, n_datasets))
+
+    df_extra_full = K + 1   # H0z + K interactions
+    df_extra_int = K         # K H0z×dataset interactions
 
     for b in range(n_boot):
-        # Resample architecture blocks
         boot_archs = rng.choice(unique_archs, size=n_archs, replace=True)
         boot_idx = []
         for a in boot_archs:
@@ -274,36 +297,26 @@ def clustered_bootstrap(X_m0, X_m1, y, arch_indices, n_boot=5000, rng=None):
         X1_b = X_m1[boot_idx]
         y_b = y[boot_idx]
 
-        # M0 fit
-        _, _, sse0, r2_0 = ols_fit(X0_b, y_b)
-
-        # M1 fit
-        beta1, _, sse1, r2_1 = ols_fit(X1_b, y_b)
+        _, _, sse0, _ = ols_fit(X0_b, y_b)
+        beta1, _, sse1, _ = ols_fit(X1_b, y_b)
         coef_boot[b] = beta1
 
-        # Full block incremental F: {H0z, H0z×CUB, H0z×RESISC}
-        df_extra_full = 3  # H0z + 2 interactions
         df_resid_full = len(y_b) - (n_features_m1 + 1)
         f_full_block_boot[b] = incremental_f_stat(sse0, sse1, df_extra_full, df_resid_full)
 
-        # Interaction block only: test {H0z×CUB, H0z×RESISC} given H0z main effect
-        # M1-no-interaction: log_params, H0z, d_CUB, d_RESISC, lp×CUB, lp×RESISC (no H0 interactions)
-        X1_no_int = X1_b[:, :6]  # First 6 columns
+        X1_no_int = X1_b[:, :n_no_int]
         _, _, sse1_no_int, _ = ols_fit(X1_no_int, y_b)
-        df_extra_int = 2  # H0z×CUB, H0z×RESISC
         f_interaction_block_boot[b] = incremental_f_stat(sse1_no_int, sse1, df_extra_int, df_resid_full)
 
-        # Partial R2 of H0 block
         partial_r2_boot[b] = (sse0 - sse1) / sse0 if sse0 > 0 else 0.0
 
         # Per-dataset partial effects
-        # beta1 layout: [intercept, log_params, H0z, d_CUB, d_RESISC, lp×CUB, lp×RESISC, H0z×CUB, H0z×RESISC]
-        beta_h0z = beta1[2]            # H0z main effect (= CIFAR effect)
-        beta_h0z_cub = beta1[7]        # H0z × CUB interaction
-        beta_h0z_resisc = beta1[8]     # H0z × RESISC interaction
-        partial_effects_boot[b, 0] = beta_h0z                      # CIFAR
-        partial_effects_boot[b, 1] = beta_h0z + beta_h0z_cub       # CUB
-        partial_effects_boot[b, 2] = beta_h0z + beta_h0z_resisc    # RESISC
+        # beta1: [intercept, log_params, H0z, ...dummies, ...lp×ds, ...H0z×ds]
+        beta_h0z = beta1[2]  # H0z main effect = reference dataset effect
+        partial_effects_boot[b, 0] = beta_h0z
+        for i in range(K):
+            # H0z×dataset_i interaction is at index 3 + 2K + i (with intercept offset)
+            partial_effects_boot[b, i + 1] = beta_h0z + beta1[3 + 2 * K + i]
 
     return {
         "coef_boot": coef_boot,
@@ -315,60 +328,60 @@ def clustered_bootstrap(X_m0, X_m1, y, arch_indices, n_boot=5000, rng=None):
 
 
 def permutation_test(X_m0, X_m1_template, y, h0z, datasets, arch_indices,
-                     n_perms=1000, rng=None):
+                     active_datasets, K, n_perms=1000, rng=None):
     """Permutation test: shuffle H0 within dataset, refit M0 and M1, compute delta SSE.
 
-    Tests both:
-    - Full block: {H0z, H0z×CUB, H0z×RESISC}
-    - Interaction only: {H0z×CUB, H0z×RESISC}
-
-    Returns observed F-stats and permutation p-values (two-tailed).
+    K = number of non-reference datasets.
+    Tests both full H0 block (K+1 features) and interaction-only block (K features).
     """
     if rng is None:
         rng = np.random.default_rng(123)
 
     n = len(y)
     n_features_m1 = X_m1_template.shape[1]
+    n_no_int = 2 + 2 * K  # columns before H0z interactions
 
-    # Observed statistics
     _, _, sse0_obs, _ = ols_fit(X_m0, y)
     _, _, sse1_obs, _ = ols_fit(X_m1_template, y)
-    X1_no_int = X_m1_template[:, :6]
+    X1_no_int = X_m1_template[:, :n_no_int]
     _, _, sse1_no_int_obs, _ = ols_fit(X1_no_int, y)
 
     df_resid = n - (n_features_m1 + 1)
-    f_full_obs = incremental_f_stat(sse0_obs, sse1_obs, 3, df_resid)
-    f_int_obs = incremental_f_stat(sse1_no_int_obs, sse1_obs, 2, df_resid)
+    df_extra_full = K + 1
+    df_extra_int = K
+    f_full_obs = incremental_f_stat(sse0_obs, sse1_obs, df_extra_full, df_resid)
+    f_int_obs = incremental_f_stat(sse1_no_int_obs, sse1_obs, df_extra_int, df_resid)
 
     f_full_perm = np.zeros(n_perms)
     f_int_perm = np.zeros(n_perms)
 
     datasets_arr = np.array(datasets)
+    # Identify non-reference datasets and their dummy column indices in M1
+    non_ref = [ds for ds in active_datasets if ds != REFERENCE_DATASET]
 
     for p in range(n_perms):
-        # Shuffle H0 within each dataset
         h0z_shuffled = h0z.copy()
-        for ds in DATASETS:
+        for ds in active_datasets:
             mask = datasets_arr == ds
             indices = np.where(mask)[0]
-            h0z_shuffled[indices] = rng.permutation(h0z_shuffled[indices])
+            if len(indices) > 0:
+                h0z_shuffled[indices] = rng.permutation(h0z_shuffled[indices])
 
         # Rebuild M1 with shuffled H0
         X_m1_perm = X_m1_template.copy()
         X_m1_perm[:, 1] = h0z_shuffled  # H0z column
-        d_cub = X_m1_template[:, 2]
-        d_resisc = X_m1_template[:, 3]
-        X_m1_perm[:, 6] = h0z_shuffled * d_cub      # H0z × CUB
-        X_m1_perm[:, 7] = h0z_shuffled * d_resisc    # H0z × RESISC
+        # Update H0z × dataset interaction columns (start at index 2+2K)
+        for i, ds in enumerate(non_ref):
+            dummy_col = X_m1_template[:, 2 + i]  # dataset dummy
+            X_m1_perm[:, n_no_int + i] = h0z_shuffled * dummy_col
 
         _, _, sse1_p, _ = ols_fit(X_m1_perm, y)
-        X1_no_int_p = X_m1_perm[:, :6]
+        X1_no_int_p = X_m1_perm[:, :n_no_int]
         _, _, sse1_no_int_p, _ = ols_fit(X1_no_int_p, y)
 
-        f_full_perm[p] = incremental_f_stat(sse0_obs, sse1_p, 3, df_resid)
-        f_int_perm[p] = incremental_f_stat(sse1_no_int_obs, sse1_p, 2, df_resid)
+        f_full_perm[p] = incremental_f_stat(sse0_obs, sse1_p, df_extra_full, df_resid)
+        f_int_perm[p] = incremental_f_stat(sse1_no_int_obs, sse1_p, df_extra_int, df_resid)
 
-    # Two-tailed p-values
     p_full = np.mean(f_full_perm >= f_full_obs)
     p_int = np.mean(f_int_perm >= f_int_obs)
 
@@ -381,18 +394,22 @@ def permutation_test(X_m0, X_m1_template, y, h0z, datasets, arch_indices,
     }
 
 
-def run_analysis(records, outcome_key, outcome_label, standardize_h0=True,
-                 n_boot=5000, n_perm=1000):
+def run_analysis(records, outcome_key, outcome_label, active_datasets,
+                 standardize_h0=True, n_boot=5000, n_perm=1000):
     """Run the full pooled interaction analysis for one outcome."""
+    non_ref = [ds for ds in active_datasets if ds != REFERENCE_DATASET]
+    K = len(non_ref)
+    n_no_int = 2 + 2 * K
+
     print(f"\n{'='*70}")
     print(f"Outcome: {outcome_label} ({outcome_key})")
     print(f"H0 standardization: {'within-dataset z-score' if standardize_h0 else 'raw'}")
+    print(f"Datasets: {len(active_datasets)} ({DATASET_LABELS.get(REFERENCE_DATASET, REFERENCE_DATASET)} as reference)")
     print(f"{'='*70}")
 
-    X_m0, X_m1, y, names_m0, names_m1, arch_indices, h0z, datasets = \
-        build_design_matrix(records, outcome_key, standardize_h0=standardize_h0)
+    X_m0, X_m1, y, names_m0, names_m1, arch_indices, h0z, datasets, _ = \
+        build_design_matrix(records, outcome_key, active_datasets, standardize_h0=standardize_h0)
 
-    # Check for NaN/Inf
     valid = np.isfinite(y)
     if not np.all(valid):
         n_invalid = np.sum(~valid)
@@ -405,9 +422,9 @@ def run_analysis(records, outcome_key, outcome_label, standardize_h0=True,
         arch_indices = arch_indices[valid]
 
     n = len(y)
-    print(f"n = {n}")
+    n_unique = len(np.unique(arch_indices))
+    print(f"n = {n} ({n_unique} architecture blocks)")
 
-    # --- Point estimates ---
     beta_m0, res_m0, sse_m0, r2_m0 = ols_fit(X_m0, y)
     beta_m1, res_m1, sse_m1, r2_m1 = ols_fit(X_m1, y)
 
@@ -415,71 +432,65 @@ def run_analysis(records, outcome_key, outcome_label, standardize_h0=True,
     print(f"M1 R² = {r2_m1:.4f}  (+ H0z + H0z×dataset)")
     print(f"ΔR²   = {r2_m1 - r2_m0:.4f}")
 
-    # Coefficients
     all_names_m1 = ["intercept"] + names_m1
     print(f"\nM1 Coefficients:")
     for name, coef in zip(all_names_m1, beta_m1):
-        print(f"  {name:20s} = {coef:+.6f}")
+        print(f"  {name:25s} = {coef:+.6f}")
 
-    # Per-dataset partial effects
-    beta_h0z = beta_m1[2]
-    beta_h0z_cub = beta_m1[7]
-    beta_h0z_resisc = beta_m1[8]
-    effect_cifar = beta_h0z
-    effect_cub = beta_h0z + beta_h0z_cub
-    effect_resisc = beta_h0z + beta_h0z_resisc
+    # Per-dataset partial effects (dynamic)
+    ds_labels_ordered = [DATASET_LABELS.get(REFERENCE_DATASET, REFERENCE_DATASET)]
+    effects = [float(beta_m1[2])]  # reference = H0z main effect
+    for i, ds in enumerate(non_ref):
+        label = DATASET_LABELS.get(ds, ds)
+        ds_labels_ordered.append(label)
+        effects.append(float(beta_m1[2] + beta_m1[3 + 2 * K + i]))
 
     print(f"\nPer-dataset partial effect of H0z:")
-    print(f"  CIFAR-100:  {effect_cifar:+.6f}")
-    print(f"  CUB-200:    {effect_cub:+.6f}")
-    print(f"  RESISC-45:  {effect_resisc:+.6f}")
+    for label, eff in zip(ds_labels_ordered, effects):
+        print(f"  {label:15s}  {eff:+.6f}")
 
-    # --- VIF ---
+    # VIF
     vifs = compute_vif(X_m1)
     print(f"\nVIF (M1):")
     vif_flags = []
     for name, vif in zip(names_m1, vifs):
         flag = " *** EXCEEDS THRESHOLD" if vif > VIF_THRESHOLD else ""
-        print(f"  {name:20s} = {vif:.2f}{flag}")
+        print(f"  {name:25s} = {vif:.2f}{flag}")
         if vif > VIF_THRESHOLD:
             vif_flags.append(name)
 
-    # --- Incremental F (point estimate) ---
+    # Incremental F (point estimate)
     df_resid = n - (len(names_m1) + 1)
-    f_full = incremental_f_stat(sse_m0, sse_m1, 3, df_resid)
+    f_full = incremental_f_stat(sse_m0, sse_m1, K + 1, df_resid)
 
-    X_m1_no_int = X_m1[:, :6]
-    _, _, sse_m1_no_int, r2_m1_no_int = ols_fit(X_m1_no_int, y)
-    f_int = incremental_f_stat(sse_m1_no_int, sse_m1, 2, df_resid)
+    X_m1_no_int = X_m1[:, :n_no_int]
+    _, _, sse_m1_no_int, _ = ols_fit(X_m1_no_int, y)
+    f_int = incremental_f_stat(sse_m1_no_int, sse_m1, K, df_resid)
 
     print(f"\nIncremental F-tests (point estimates):")
     print(f"  Full H0 block:        F = {f_full:.4f}")
     print(f"  Interaction block:    F = {f_int:.4f}")
 
-    # --- Clustered bootstrap ---
-    print(f"\nRunning clustered bootstrap ({n_boot} iterations, 19 arch blocks)...")
-    boot = clustered_bootstrap(X_m0, X_m1, y, arch_indices, n_boot=n_boot)
+    # Clustered bootstrap
+    print(f"\nRunning clustered bootstrap ({n_boot} iterations, {n_unique} arch blocks)...")
+    boot = clustered_bootstrap(X_m0, X_m1, y, arch_indices, K, n_boot=n_boot)
 
-    # Coefficient CIs (95%)
     coef_ci = {}
     print(f"\nM1 Coefficient 95% CIs (clustered bootstrap):")
     for i, name in enumerate(all_names_m1):
         lo = np.percentile(boot["coef_boot"][:, i], 2.5)
         hi = np.percentile(boot["coef_boot"][:, i], 97.5)
         coef_ci[name] = {"point": float(beta_m1[i]), "ci_lo": float(lo), "ci_hi": float(hi)}
-        print(f"  {name:20s} = {beta_m1[i]:+.6f}  [{lo:+.6f}, {hi:+.6f}]")
+        print(f"  {name:25s} = {beta_m1[i]:+.6f}  [{lo:+.6f}, {hi:+.6f}]")
 
-    # Partial effects CIs
     partial_effects_ci = {}
     print(f"\nPer-dataset H0z partial effect 95% CIs:")
-    for i, ds_label in enumerate(["CIFAR-100", "CUB-200", "RESISC-45"]):
-        pe = [effect_cifar, effect_cub, effect_resisc][i]
+    for i, (label, eff) in enumerate(zip(ds_labels_ordered, effects)):
         lo = np.percentile(boot["partial_effects"][:, i], 2.5)
         hi = np.percentile(boot["partial_effects"][:, i], 97.5)
-        partial_effects_ci[ds_label] = {"point": float(pe), "ci_lo": float(lo), "ci_hi": float(hi)}
-        print(f"  {ds_label:12s}  {pe:+.6f}  [{lo:+.6f}, {hi:+.6f}]")
+        partial_effects_ci[label] = {"point": float(eff), "ci_lo": float(lo), "ci_hi": float(hi)}
+        print(f"  {label:15s}  {eff:+.6f}  [{lo:+.6f}, {hi:+.6f}]")
 
-    # Bootstrap F CIs
     f_full_ci = (float(np.percentile(boot["f_full_block"], 2.5)),
                  float(np.percentile(boot["f_full_block"], 97.5)))
     f_int_ci = (float(np.percentile(boot["f_interaction_block"], 2.5)),
@@ -489,19 +500,21 @@ def run_analysis(records, outcome_key, outcome_label, standardize_h0=True,
 
     print(f"\n  Partial R² of H0 block: {r2_m1 - r2_m0:.4f}  [{partial_r2_ci[0]:.4f}, {partial_r2_ci[1]:.4f}]")
 
-    # --- Permutation tests ---
+    # Permutation tests
     print(f"\nRunning permutation tests ({n_perm} iterations, within-dataset H0 shuffle)...")
-    perm = permutation_test(X_m0, X_m1, y, h0z, datasets, arch_indices, n_perms=n_perm)
+    perm = permutation_test(X_m0, X_m1, y, h0z, datasets, arch_indices,
+                            active_datasets, K, n_perms=n_perm)
 
     print(f"\nPermutation results (two-tailed):")
     print(f"  Full H0 block:     F_obs = {perm['f_full_observed']:.4f}, p = {perm['p_full_block']:.4f}")
     print(f"  Interaction block: F_obs = {perm['f_interaction_observed']:.4f}, p = {perm['p_interaction_block']:.4f}")
 
-    # --- Assemble results ---
     result = {
         "outcome": outcome_label,
         "outcome_key": outcome_key,
         "n": n,
+        "n_datasets": len(active_datasets),
+        "datasets": [DATASET_LABELS.get(ds, ds) for ds in active_datasets],
         "h0_standardization": "within_dataset_zscore" if standardize_h0 else "raw",
         "m0_r2": float(r2_m0),
         "m1_r2": float(r2_m1),
@@ -524,14 +537,18 @@ def run_analysis(records, outcome_key, outcome_label, standardize_h0=True,
     return result
 
 
-def run_reduced_model(records, outcome_key, outcome_label, standardize_h0=True, n_perm=1000):
+def run_reduced_model(records, outcome_key, outcome_label, active_datasets,
+                      standardize_h0=True, n_perm=1000):
     """Reduced model without log_params x dataset interactions (robustness check).
 
     M0r: Y ~ log_params + dataset
     M1r: Y ~ log_params + H0z + dataset + H0z × dataset
     """
-    X_m0, X_m1, y, _, _, arch_indices, h0z, datasets = \
-        build_design_matrix(records, outcome_key, standardize_h0=standardize_h0)
+    non_ref = [ds for ds in active_datasets if ds != REFERENCE_DATASET]
+    K = len(non_ref)
+
+    X_m0, X_m1, y, _, _, arch_indices, h0z, datasets, _ = \
+        build_design_matrix(records, outcome_key, active_datasets, standardize_h0=standardize_h0)
 
     valid = np.isfinite(y)
     if not np.all(valid):
@@ -544,21 +561,25 @@ def run_reduced_model(records, outcome_key, outcome_label, standardize_h0=True, 
 
     n = len(y)
 
-    # Reduced M0: log_params, d_CUB, d_RESISC (no params interactions)
-    X_m0r = X_m0[:, :3]
+    # Reduced M0: log_params + K dummies (no params interactions)
+    X_m0r = X_m0[:, :1 + K]
 
-    # Reduced M1: log_params, H0z, d_CUB, d_RESISC, H0z×CUB, H0z×RESISC
-    d_cub = X_m1[:, 2]
-    d_resisc = X_m1[:, 3]
+    # Reduced M1: log_params, H0z, K dummies, K H0z×dataset
     h0z_col = X_m1[:, 1]
-    X_m1r = np.column_stack([X_m1[:, 0], h0z_col, d_cub, d_resisc,
-                             h0z_col * d_cub, h0z_col * d_resisc])
+    m1r_cols = [X_m1[:, 0], h0z_col]  # log_params, H0z
+    for i in range(K):
+        m1r_cols.append(X_m1[:, 2 + i])  # dataset dummies
+    for i in range(K):
+        m1r_cols.append(h0z_col * X_m1[:, 2 + i])  # H0z × dataset
+    X_m1r = np.column_stack(m1r_cols)
 
+    n_features_m1r = X_m1r.shape[1]
     _, _, sse0r, r2_0r = ols_fit(X_m0r, y)
     beta1r, _, sse1r, r2_1r = ols_fit(X_m1r, y)
 
-    df_resid = n - 7  # 6 features + intercept
-    f_full = incremental_f_stat(sse0r, sse1r, 3, df_resid)
+    df_extra = K + 1  # H0z + K interactions
+    df_resid = n - (n_features_m1r + 1)
+    f_full = incremental_f_stat(sse0r, sse1r, df_extra, df_resid)
 
     # Permutation test on reduced model
     rng = np.random.default_rng(456)
@@ -566,36 +587,39 @@ def run_reduced_model(records, outcome_key, outcome_label, standardize_h0=True, 
     f_perm = np.zeros(n_perm)
     for p in range(n_perm):
         h0z_s = h0z.copy()
-        for ds in DATASETS:
+        for ds in active_datasets:
             mask = datasets_arr == ds
             indices = np.where(mask)[0]
-            h0z_s[indices] = rng.permutation(h0z_s[indices])
-        X_m1r_p = np.column_stack([X_m1r[:, 0], h0z_s, d_cub, d_resisc,
-                                   h0z_s * d_cub, h0z_s * d_resisc])
+            if len(indices) > 0:
+                h0z_s[indices] = rng.permutation(h0z_s[indices])
+        m1r_p_cols = [X_m1r[:, 0], h0z_s]
+        for i in range(K):
+            m1r_p_cols.append(X_m1r[:, 2 + i])
+        for i in range(K):
+            m1r_p_cols.append(h0z_s * X_m1r[:, 2 + i])
+        X_m1r_p = np.column_stack(m1r_p_cols)
         _, _, sse1r_p, _ = ols_fit(X_m1r_p, y)
-        f_perm[p] = incremental_f_stat(sse0r, sse1r_p, 3, df_resid)
+        f_perm[p] = incremental_f_stat(sse0r, sse1r_p, df_extra, df_resid)
 
     p_full = float(np.mean(f_perm >= f_full))
 
-    # Per-dataset effects from reduced model
-    # beta1r: [intercept, log_params, H0z, d_CUB, d_RESISC, H0z×CUB, H0z×RESISC]
-    effect_cifar = float(beta1r[2])
-    effect_cub = float(beta1r[2] + beta1r[5])
-    effect_resisc = float(beta1r[2] + beta1r[6])
+    # Per-dataset effects: reference = beta_H0z, non-ref_i = beta_H0z + beta_H0z×ds_i
+    partial_effects = {}
+    ref_label = DATASET_LABELS.get(REFERENCE_DATASET, REFERENCE_DATASET)
+    partial_effects[ref_label] = float(beta1r[2])
+    for i, ds in enumerate(non_ref):
+        label = DATASET_LABELS.get(ds, ds)
+        partial_effects[label] = float(beta1r[2] + beta1r[3 + K + i])
 
     return {
-        "model": "reduced (no log_params × dataset)",
+        "model": "reduced (no log_params x dataset)",
         "outcome": outcome_label,
         "m0r_r2": float(r2_0r),
         "m1r_r2": float(r2_1r),
         "delta_r2": float(r2_1r - r2_0r),
         "f_full_block": float(f_full),
         "p_full_block": p_full,
-        "partial_effects": {
-            "CIFAR-100": effect_cifar,
-            "CUB-200": effect_cub,
-            "RESISC-45": effect_resisc,
-        },
+        "partial_effects": partial_effects,
     }
 
 
@@ -609,7 +633,6 @@ def make_figure(results, output_path):
         print("WARNING: matplotlib not available, skipping figure")
         return
 
-    # Find forgetting, EWC, and SI results
     forgetting_result = None
     ewc_result = None
     si_result = None
@@ -639,30 +662,33 @@ def make_figure(results, output_path):
     if n_panels == 1:
         axes = [axes]
 
-    ds_labels = ["CIFAR-100", "CUB-200", "RESISC-45"]
-    ds_colors = ["#3b82f6", "#f59e0b", "#ef4444"]
-    x_pos = [0, 1, 2]
+    # Dynamic dataset labels from results
+    ds_labels = list(forgetting_result["partial_effects"].keys())
+    base_colors = ["#3b82f6", "#f59e0b", "#ef4444", "#10b981", "#8b5cf6", "#ec4899"]
+    ds_colors = base_colors[:len(ds_labels)]
+    x_pos = list(range(len(ds_labels)))
 
     for ax, (result, title) in zip(axes, panels):
         pe = result["partial_effects"]
-        points = [pe[ds]["point"] for ds in ds_labels]
-        ci_lo = [pe[ds]["ci_lo"] for ds in ds_labels]
-        ci_hi = [pe[ds]["ci_hi"] for ds in ds_labels]
+        available_ds = [ds for ds in ds_labels if ds in pe]
+        points = [pe[ds]["point"] for ds in available_ds]
+        ci_lo = [pe[ds]["ci_lo"] for ds in available_ds]
+        ci_hi = [pe[ds]["ci_hi"] for ds in available_ds]
         errors_lo = [p - lo for p, lo in zip(points, ci_lo)]
         errors_hi = [hi - p for p, hi in zip(points, ci_hi)]
+        x = list(range(len(available_ds)))
 
-        ax.bar(x_pos, points, color=ds_colors, alpha=0.7, width=0.6, zorder=2)
-        ax.errorbar(x_pos, points, yerr=[errors_lo, errors_hi],
+        ax.bar(x, points, color=ds_colors[:len(x)], alpha=0.7, width=0.6, zorder=2)
+        ax.errorbar(x, points, yerr=[errors_lo, errors_hi],
                     fmt="none", ecolor="white", elinewidth=1.5, capsize=5, capthick=1.5, zorder=3)
         ax.axhline(y=0, color="gray", linestyle="--", linewidth=0.8, alpha=0.5)
-        ax.set_xticks(x_pos)
-        ax.set_xticklabels(ds_labels, fontsize=10)
+        ax.set_xticks(x)
+        ax.set_xticklabels(available_ds, fontsize=9, rotation=15 if len(available_ds) > 3 else 0)
         ax.set_ylabel("Coefficient (1 SD within-dataset H0)", fontsize=9)
         ax.set_title(title, fontsize=11, fontweight="bold")
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
-        # Add p-values from permutation
         perm_p_full = result["permutation"]["p_full_block"]
         perm_p_int = result["permutation"]["p_interaction_block"]
         ax.text(0.02, 0.98, f"Full block p={perm_p_full:.3f}\nInteraction p={perm_p_int:.3f}",
@@ -683,6 +709,8 @@ def main():
     parser = argparse.ArgumentParser(description="Phase 6: Pooled cross-dataset interaction analysis")
     parser.add_argument("--results-dir", type=str, default="results",
                         help="Directory containing Phase 4 correlation JSONs")
+    parser.add_argument("--datasets", nargs="+", type=str, default=None,
+                        help="Datasets to pool (default: auto-discover from available Phase 4 JSONs)")
     parser.add_argument("--output", type=str, default=None,
                         help="Output JSON path (default: results/pooled_interaction.json)")
     parser.add_argument("--n-bootstrap", type=int, default=N_BOOTSTRAP)
@@ -695,10 +723,19 @@ def main():
     results_dir = Path(args.results_dir)
     output_path = Path(args.output) if args.output else results_dir / "pooled_interaction.json"
 
-    # Load data
-    records = load_phase4_data(results_dir)
+    # Load data (auto-discovers available datasets)
+    records, active_datasets = load_phase4_data(results_dir, datasets=args.datasets)
 
-    # Define outcomes
+    if len(active_datasets) < 2:
+        print(f"ERROR: Need >= 2 datasets for pooled analysis, have {len(active_datasets)}")
+        sys.exit(1)
+
+    if REFERENCE_DATASET not in active_datasets:
+        print(f"WARNING: Reference dataset '{REFERENCE_DATASET}' not found. "
+              f"Using '{active_datasets[0]}' as reference.")
+        # Move reference to front -- but keep using REFERENCE_DATASET global
+        # This case shouldn't normally happen since cifar100 is in DEFAULT_DATASETS
+
     outcomes = {
         "ret_10": "Retention @ step 10 (primary)",
         "retention_100": "Retention @ step 100 (robustness)",
@@ -709,7 +746,6 @@ def main():
         "si_benefit_ret10": "SI Benefit (ret@10, absolute)",
     }
 
-    # Check if SI data is available (all non-None for at least one record)
     has_si = any(r.get("si_benefit_aurc") is not None for r in records)
     if not has_si:
         print("\nNote: No SI data available yet. SI outcomes will be skipped.")
@@ -722,19 +758,17 @@ def main():
         print(f"# {outcome_label}")
         print(f"{'#'*70}")
 
-        # Primary: within-dataset z-scored H0
-        result = run_analysis(records, outcome_key, outcome_label, standardize_h0=True,
-                              n_boot=n_boot, n_perm=n_perm)
+        result = run_analysis(records, outcome_key, outcome_label, active_datasets,
+                              standardize_h0=True, n_boot=n_boot, n_perm=n_perm)
         all_results[f"{outcome_key}_zscore"] = result
 
-        # Sensitivity: raw H0
         result_raw = run_analysis(records, outcome_key, f"{outcome_label} [raw H0]",
-                                  standardize_h0=False, n_boot=n_boot, n_perm=n_perm)
+                                  active_datasets, standardize_h0=False,
+                                  n_boot=n_boot, n_perm=n_perm)
         all_results[f"{outcome_key}_raw"] = result_raw
 
-        # Robustness: reduced model (no params × dataset interactions)
-        reduced = run_reduced_model(records, outcome_key, outcome_label, standardize_h0=True,
-                                    n_perm=n_perm)
+        reduced = run_reduced_model(records, outcome_key, outcome_label, active_datasets,
+                                    standardize_h0=True, n_perm=n_perm)
         all_results[f"{outcome_key}_reduced"] = reduced
 
     # Summary
@@ -754,7 +788,7 @@ def main():
             pi = r["permutation"]["p_interaction_block"]
             print(f"{outcomes[outcome_key]:<35} {dr2:>8.4f} {pf:>10.4f} {pi:>10.4f}")
 
-    print(f"\nRobustness check (reduced model, no params × dataset):")
+    print(f"\nRobustness check (reduced model, no params x dataset):")
     print(f"{'Outcome':<35} {'ΔR²':>8} {'p(full)':>10}")
     print("-" * 55)
     for outcome_key in outcomes:
@@ -765,13 +799,11 @@ def main():
             pf = r["p_full_block"]
             print(f"{outcomes[outcome_key]:<35} {dr2:>8.4f} {pf:>10.4f}")
 
-    # Save
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w") as f:
         json.dump(all_results, f, indent=2, default=str)
     print(f"\nResults saved: {output_path}")
 
-    # Figure
     fig_path = output_path.with_name("pooled_interaction_figure.png")
     make_figure(list(all_results.values()), fig_path)
 

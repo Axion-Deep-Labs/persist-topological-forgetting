@@ -1,12 +1,17 @@
 # PERSIST Phase I-A: NMSU Discovery HPC Workflow
 
-> Last updated: 2026-03-27
+> Last updated: 2026-04-01
 
 ## Overview
 
-10 ImageNet-100 experiments across architectures from 20M to 632M parameters.
+8 valid ImageNet-100 experiments across architectures from 20M to 304M parameters.
 Each config runs 5 SLURM jobs (phase1 training, phase2 topology, phase3 naive/EWC/SI).
-Total: 50 jobs. Estimated wall-clock: 48-72 hours with parallel execution.
+
+**Status (2026-04-01):** All 8 configs complete through Phases 1-3. Phase 4-6 analysis ready to submit.
+
+**Dropped configs:**
+- ViT-H/14 (632M): SWAG weights require 518x518 input, incompatible with 224x224 pipeline
+- WRN-40-10 (56M): CIFAR-32 architecture, OOMs at 224x224 on A100 40GB
 
 ---
 

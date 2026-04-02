@@ -98,7 +98,42 @@ Selected WD=0.03 for pilot (longest delay = most pre-grokking data).
 - **CIFAR-100:** 19/19 architectures, Phases 1-6 complete (preliminary)
 - **CUB-200-2011:** 19/19 architectures, Phases 1-6 complete (preliminary)
 - **RESISC-45:** 19/19 architectures, Phases 1-6 complete (preliminary)
-- **ImageNet-100:** 10 configs ready, 0/10 submitted (Phase I)
+- **ImageNet-100:** 8/8 valid configs complete through Phases 1-3 (2026-04-01). Phase 4-6 analysis pending.
+
+---
+
+### Phase I-A: ImageNet-100 Results (2026-03-28 to 2026-04-01)
+
+**8 of 10 configs completed all training and forgetting phases on NMSU Discovery HPC.**
+
+| Architecture | Params | Phase 1 | Phase 2 | Phase 3 (Naive) | Phase 3 (EWC) | Phase 3 (SI) |
+|---|---|---|---|---|---|---|
+| ResNet-101 | ~44M | Complete | Complete | Complete | Complete | Complete |
+| ConvNeXt-Small | ~50M | Complete | Complete | Complete | Complete | Complete |
+| ConvNeXt-Base | ~89M | Complete | Complete | Complete | Complete | Complete |
+| ConvNeXt-Large | ~198M | Complete | Complete | Complete | Complete | Complete |
+| EfficientNet-B5 | ~30M | Complete | Complete | Complete | Complete | Complete |
+| DenseNet-201 | ~20M | Complete | Complete | Complete | Complete | Complete |
+| ViT-B/16 | ~86M | Complete | Complete | Complete | Complete | Complete |
+| ViT-L/16 | ~304M | Complete | Complete | Complete | Complete | Complete |
+
+**Dropped configs:**
+- **ViT-H/14 (632M params):** SWAG pretrained weights (`vit_h_14_swag-80465313.pth`) require 518x518 input. Pipeline uses 224x224 for all ImageNet-100 configs. Error: `AssertionError: Wrong image height! Expected 518 but got 224!`. Also far outside the experiment's parameter range.
+- **WRN-40-10 (~56M params):** Architecture designed for 32x32 CIFAR. Config had `img_size: 32` but ImageNet-100 data loader hardcodes 224x224 via `get_224x224_transforms()`. At 224x224, feature maps are 49x larger per layer. OOM on A100 40GB: 38.5/39.5 GB used at layer2 forward pass.
+
+**HPC issues resolved:**
+- Missing tqdm in persist-env (2026-03-28): `pip install tqdm`
+- GPU targeting (2026-03-28): `--gres=gpu:1` landed on P100/V100/T4 which OOM on EWC/SI. Fixed: `--gres=gpu:a100:1`
+- DependencyNeverSatisfied cascade (2026-04-01): ViT-H and WRN failures cascaded to 8 stuck downstream jobs. Cancelled and diagnosed via log files.
+
+**Analysis pipeline bugs fixed (2026-04-01):**
+1. Phase 4: `ARCH_CLASSES` dict missing all ImageNet-100 architecture entries. Added 8 new entries.
+2. Phase 4: `_imagenet100` suffix not in strip list for architecture class lookup. Added.
+3. Phase 5: Dataset detection fell through to "CIFAR-100" for ImageNet-100 runs. Added `_imagenet100` check.
+4. Phase 6: Entire script hardcoded for exactly 3 datasets with 19 matching architectures. Generalized to N datasets with variable architecture counts, dynamic design matrix, clustered bootstrap, and permutation tests.
+5. Phase 6 reduced model: Off-by-one index bug in partial effects (`beta1r[2+K+i]` should be `beta1r[3+K+i]`). Fixed.
+
+**Next:** Submit Phase 4-6 on HPC. Phase 6 will run twice: 3-dataset (n=57, replication) and 4-dataset (n=65, exploratory with ImageNet-100).
 
 ---
 

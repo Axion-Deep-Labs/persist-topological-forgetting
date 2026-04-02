@@ -8,7 +8,7 @@ Can the topology of a loss landscape predict how well a model resists catastroph
 
 **Preliminary work** (complete) established proof-of-concept on small-to-medium models (0.3M-44.7M parameters) across 3 small-image datasets. This is the petri dish: we computed persistent homology on 2D cross-sections of loss landscapes across 19 architectures and 57 total configurations, demonstrating that topological features correlate with forgetting dynamics and mitigation benefit at this scale.
 
-**Phase I** (in progress, NMSU Discovery HPC) is testing whether these signals survive at production scale. The cluster provides NVIDIA A100-PCIE-40GB GPUs with unlimited compute hours. 10 ImageNet-100 configurations are ready (100M-300M+ param models including ViT-B/L/H, ConvNeXt-S/B/L, ResNet-101). The pipeline now includes both EWC and Synaptic Intelligence (SI) as continual learning methods, directly addressing the key limitation that the preliminary finding may be EWC-specific.
+**Phase I** (in progress, NMSU Discovery HPC) is testing whether these signals survive at production scale. The cluster provides NVIDIA A100-PCIE-40GB GPUs with unlimited compute hours. 8 ImageNet-100 configurations have completed training and forgetting phases (20M-304M param models including ViT-B/L, ConvNeXt-S/B/L, ResNet-101, EfficientNet-B5, DenseNet-201). The pipeline now includes both EWC and Synaptic Intelligence (SI) as continual learning methods, directly addressing the key limitation that the preliminary finding may be EWC-specific. Phase 4-6 analysis (correlation, predictive model, pooled interaction) is ready for submission.
 
 ## Preliminary Findings (Small-Scale Proof-of-Concept)
 
@@ -91,31 +91,35 @@ The preliminary work demonstrated topological signal on small models. Phase I ad
 
 ### Phase I-A: ImageNet-100 Scale-Up (Current Priority)
 
-10 configurations ready, targeting 100M-300M+ parameter models on ImageNet-100 (224x224):
+8 configurations completed through Phases 1-3 on NMSU Discovery HPC (A100 40GB):
 
-| Architecture | Params | Status |
-|---|---|---|
-| ResNet-101 | ~44M | Ready |
-| ConvNeXt-Small | ~50M | Ready |
-| ConvNeXt-Base | ~89M | Ready |
-| ConvNeXt-Large | ~198M | Ready |
-| EfficientNet-B5 | ~30M | Ready |
-| DenseNet-201 | ~20M | Ready |
-| ViT-B/16 | ~86M | Ready |
-| ViT-L/16 | ~304M | Ready |
-| ViT-H/14 | ~632M | Ready |
-| WRN-40-10 | ~56M | Ready |
+| Architecture | Params | Phase 1 | Phase 2 | Phase 3 (Naive/EWC/SI) |
+|---|---|---|---|---|
+| ResNet-101 | ~44M | Complete | Complete | Complete |
+| ConvNeXt-Small | ~50M | Complete | Complete | Complete |
+| ConvNeXt-Base | ~89M | Complete | Complete | Complete |
+| ConvNeXt-Large | ~198M | Complete | Complete | Complete |
+| EfficientNet-B5 | ~30M | Complete | Complete | Complete |
+| DenseNet-201 | ~20M | Complete | Complete | Complete |
+| ViT-B/16 | ~86M | Complete | Complete | Complete |
+| ViT-L/16 | ~304M | Complete | Complete | Complete |
+| ~~ViT-H/14~~ | ~~632M~~ | Dropped | -- | -- |
+| ~~WRN-40-10~~ | ~~56M~~ | Dropped | -- | -- |
 
-Each config runs: Phase 1 (train) → Phase 2 (topology) + Phase 3 (naive, EWC, SI) in parallel via SLURM dependency chains.
+**Dropped configs:**
+- **ViT-H/14:** SWAG pretrained weights require 518x518 input resolution. The ImageNet-100 pipeline uses 224x224. Also 632M params, far outside the experiment's parameter range.
+- **WRN-40-10:** Architecture designed for 32x32 CIFAR images. At 224x224, feature maps are 49x larger per layer, causing OOM on A100 40GB (39.4/39.5 GB used).
+
+**Phase 4-6 analysis** (correlation, predictive model, pooled interaction) ready for submission. Phase 6 generalized to support 4 datasets (n=65: 57 preliminary + 8 ImageNet-100).
 
 ### Phase I-B: Analysis & Replication (After I-A)
 
 | Challenge | Preliminary (Done) | Phase I Target | Why It Matters |
 |-----------|-------------------|----------------|----------------|
-| Model scale | 0.3M-44.7M params | 100M-632M params | Signal may vanish at production scale |
+| Model scale | 0.3M-44.7M params | 20M-304M params (8 configs) | Signal may vanish at production scale |
 | CL methods | EWC only | EWC + SI | Tests if finding is EWC-specific or general |
 | Datasets | 3 small-image (32x32) | ImageNet-100 (224x224) | Domain and resolution generalization |
-| Architectures | 19 | 29+ (19 prelim + 10 scale) | More statistical power |
+| Architectures | 19 | 27 (19 prelim + 8 scale) | More statistical power |
 
 ### Genuine failure modes
 - The topological signal may vanish at scale (small-model artifact)
@@ -194,7 +198,7 @@ All resized to 32x32 for cross-architecture consistency.
 ## Project Structure
 
 ```
-configs/               57 EXP-01 YAMLs + 10 ImageNet-100 + exp04_pilot.yaml
+configs/               57 EXP-01 YAMLs + 10 ImageNet-100 (8 valid) + exp04_pilot.yaml
 dashboard/             Flask dashboard for EXP-01 (localhost:5050)
 dashboard_exp04/       Flask dashboard for EXP-04 (localhost:5051)
 experiments/

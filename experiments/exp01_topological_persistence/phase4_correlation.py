@@ -75,6 +75,15 @@ ARCH_CLASSES = {
     "exp01_vit": ("ViT-Small", "Transformer"),
     "exp01_vittiny": ("ViT-Tiny", "Transformer"),
     "exp01_mlpmixer": ("MLP-Mixer", "MLP"),
+    # Phase I-A: ImageNet-100 architectures (larger scale)
+    "exp01_resnet101": ("ResNet-101", "CNN"),
+    "exp01_convnext_small": ("ConvNeXt-Small", "CNN"),
+    "exp01_convnext_base": ("ConvNeXt-Base", "CNN"),
+    "exp01_convnext_large": ("ConvNeXt-Large", "CNN"),
+    "exp01_efficientnet_b5": ("EfficientNet-B5", "CNN"),
+    "exp01_densenet201": ("DenseNet-201", "CNN"),
+    "exp01_vit_b_16": ("ViT-B-16", "Transformer"),
+    "exp01_vit_l_16": ("ViT-L-16", "Transformer"),
 }
 
 
@@ -523,7 +532,7 @@ def cross_architecture_analysis(result_dirs):
         # Get architecture class (strip dataset suffix for lookup)
         label = os.path.basename(rdir)
         lookup_key = label
-        for suffix in ("_cub200", "_resisc45", "_cifar10", "_cifar100"):
+        for suffix in ("_cub200", "_resisc45", "_cifar10", "_cifar100", "_imagenet100"):
             lookup_key = lookup_key.replace(suffix, "")
         arch_name, arch_class = ARCH_CLASSES.get(lookup_key, (label, "Unknown"))
 

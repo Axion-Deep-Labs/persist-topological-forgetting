@@ -15,7 +15,7 @@ experiments/
   exp04_.../           -- Grokking topology (model, dataset, train, topology, baselines, pilot runner, calibration)
   exp02_.../           -- Phi survey (planned)
   exp03_.../           -- Bekenstein analog (planned)
-configs/               -- 57 EXP-01 configs + 10 ImageNet-100 configs + exp04_pilot.yaml
+configs/               -- 57 EXP-01 configs + 10 ImageNet-100 configs (8 valid) + exp04_pilot.yaml
 results/               -- Output (gitignored, large files)
 dashboard/             -- Flask web dashboard (localhost:5050), EXP-01 3-dataset selector
 dashboard_exp04/       -- Flask dashboard (localhost:5051), EXP-04 per-seed and cross-seed views
@@ -60,7 +60,8 @@ bash slurm/submit_all.sh
 **Monitor:**
 ```bash
 squeue -u cag1145                              # Job status
-cat slurm/logs/<jobid>_<name>.out              # Job output
+cat slurm/logs/<jobid>_<name>.out              # Job output (local repo)
+# Full HPC path: /fs1/scratch/cag1145/axiondeep-research/slurm/logs/<jobid>_<name>.{out,err}
 sacct -j <jobid> --format=JobID,Elapsed,State  # Completed job info
 ```
 
@@ -129,15 +130,16 @@ Criterion: at least 1 PH stat shows consistent directional behavior in >= 3/5 se
 - See EXPERIMENT_LOG.md for full run history and results
 
 ### Phase I: Scale Validation (IN PROGRESS — NMSU Discovery HPC)
-- **Status:** HPC environment set up and GPU verified (2026-03-23)
+- **Status:** 8/8 valid configs complete through Phases 1-3 (2026-04-01). Phase 4-6 analysis ready to submit.
 - **Compute:** NMSU Discovery cluster (A100 40GB PCIe GPUs, unlimited hours via Crystal's NMSU affiliation)
 - **Environment:** `/fs1/scratch/cag1145/persist-env` (PyTorch 2.5.1+cu121, Python 3.10.8)
 - **Goal:** Test whether topological signal survives at production scale
-- **Models:** 10 ImageNet-100 configs ready (ResNet-101, ConvNeXt-S/B/L, EfficientNet-B5, DenseNet-201, ViT-B/L/H, WRN-40-10)
+- **Models (8 valid):** ResNet-101, ConvNeXt-S/B/L, EfficientNet-B5, DenseNet-201, ViT-B/16, ViT-L/16
+- **Dropped:** ViT-H/14 (SWAG weights require 518x518 input, incompatible with 224x224 pipeline), WRN-40-10 (CIFAR-32 architecture OOMs at 224x224 on A100 40GB)
 - **CL methods:** EWC + SI (both implemented in phase3, `--ewc` and `--si` flags)
 - **Pipeline:** `submit_all.sh` automates phase1 → phase2 + phase3 (naive/EWC/SI) with SLURM dependency chains
-- **Key risks:** Signal may vanish at scale; PH computation may be intractable; subsampling may lose fidelity
-- **Next:** Clone repo to cluster, adapt SLURM scripts for Discovery, download ImageNet-100, submit first batch
+- **Bugs fixed (2026-04-01):** Phase 4 ARCH_CLASSES missing ImageNet-100 entries + `_imagenet100` suffix strip. Phase 5 dataset detection defaulting to CIFAR-100. Phase 6 generalized from 3 hardcoded datasets to N dynamic datasets with unbalanced architecture support.
+- **Next:** Submit Phase 4-6 analysis on HPC, then Phase I-B pre-registered replication if signal holds
 
 ## Rules
 - NEVER commit data/ or results/ directories
