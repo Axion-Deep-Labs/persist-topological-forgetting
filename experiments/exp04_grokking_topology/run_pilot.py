@@ -169,11 +169,13 @@ def main():
                         help="Skip training, only run analysis on existing checkpoints")
     parser.add_argument("--skip-analysis", action="store_true",
                         help="Skip analysis, only run training")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Run a single seed (for HPC parallel jobs)")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    seeds = cfg["seeds"]
+    seeds = [args.seed] if args.seed is not None else cfg["seeds"]
     output_dir = os.path.join("results", "exp04_pilot")
     os.makedirs(output_dir, exist_ok=True)
 
