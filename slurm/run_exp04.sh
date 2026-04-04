@@ -3,7 +3,7 @@
 #SBATCH --partition=normal
 #SBATCH --gres=gpu:a100:1
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=16G
+#SBATCH --mem=24G
 #SBATCH --time=04:00:00
 #SBATCH --output=slurm/logs/%j_%x.out
 #SBATCH --error=slurm/logs/%j_%x.err

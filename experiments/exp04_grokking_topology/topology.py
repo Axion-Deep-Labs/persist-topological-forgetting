@@ -12,6 +12,7 @@ predictive signal. This is not a claim about the full loss landscape topology.
 Computation: per slice first, then average across slices.
 """
 
+import gc
 import os
 import json
 import numpy as np
@@ -177,6 +178,10 @@ def compute_topology_at_checkpoint(model, ckpt_path, dataloader, cfg, device):
         diagrams = compute_persistent_homology(loss_grid)
         stats = extract_stats(diagrams)
         per_slice_stats.append(stats)
+
+        # Free memory between slices to prevent OOM on long runs
+        del dir1, dir2, loss_grid, diagrams
+        gc.collect()
 
     # Average across slices
     all_keys = per_slice_stats[0].keys()
