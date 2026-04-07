@@ -476,6 +476,63 @@ class SplitImageNet100:
         )
 
 
+def get_cross_dataset_task_b(dataset_name, data_dir, batch_size=128,
+                             num_workers=4, seed=42):
+    """Load full dataset (all classes) for use as cross-dataset Task B.
+
+    Returns all classes with contiguous labels [0, num_classes).
+    Used when Task B comes from a different domain than Task A.
+
+    Args:
+        dataset_name: One of 'cifar100', 'cub200', 'resisc45'
+        data_dir: Root data directory
+        batch_size: Batch size for data loaders
+        num_workers: Number of data loading workers
+        seed: Random seed (for RESISC-45 train/test split)
+
+    Returns:
+        (train_loader, test_loader, num_classes)
+    """
+    if dataset_name == "cifar100":
+        train_ds = datasets.CIFAR100(
+            data_dir, train=True, download=True,
+            transform=get_cifar100_transforms(train=True),
+        )
+        test_ds = datasets.CIFAR100(
+            data_dir, train=False, download=True,
+            transform=get_cifar100_transforms(train=False),
+        )
+        num_classes = 100
+    elif dataset_name == "cub200":
+        # Instantiate with split_at=200 so all classes fall into task_a
+        # but we use train_full/test_full which have all 200 classes [0, 199]
+        cub = SplitCUB200(data_dir, split_at=200)
+        train_ds = cub.train_full
+        test_ds = cub.test_full
+        num_classes = 200
+    elif dataset_name == "resisc45":
+        # split_at=45 means all classes in task_a; labels are [0, 44]
+        resisc = SplitRESISC45(data_dir, split_at=45, seed=seed)
+        train_ds = resisc.train_full
+        test_ds = resisc.test_full
+        num_classes = 45
+    else:
+        raise ValueError(
+            f"Unknown cross-dataset: {dataset_name}. "
+            f"Available: cifar100, cub200, resisc45"
+        )
+
+    train_loader = DataLoader(
+        train_ds, batch_size=batch_size, shuffle=True,
+        num_workers=num_workers, pin_memory=True,
+    )
+    test_loader = DataLoader(
+        test_ds, batch_size=batch_size, shuffle=False,
+        num_workers=num_workers, pin_memory=True,
+    )
+    return train_loader, test_loader, num_classes
+
+
 def get_split_dataset(cfg):
     """Factory function: returns the right split dataset based on config."""
     dataset_name = cfg.get("dataset", "cifar100")

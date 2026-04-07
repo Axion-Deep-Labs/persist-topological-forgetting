@@ -42,7 +42,7 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
-from experiments.shared.datasets import get_split_dataset
+from experiments.shared.datasets import get_split_dataset, get_cross_dataset_task_b
 from experiments.shared.models import get_model
 from experiments.shared.utils import set_seed, load_config, load_checkpoint, save_checkpoint, evaluate
 
@@ -65,16 +65,30 @@ def main():
                         help="LR schedule for Task B training (default: constant)")
     parser.add_argument("--si-batch-size", type=int, default=256,
                         help="Batch size for SI/EWC importance computation (reduce for large models, default: 256)")
+    parser.add_argument("--cross-dataset", type=str, default=None,
+                        choices=["cifar100", "cub200", "resisc45"],
+                        help="Use a different dataset for Task B (cross-dataset forgetting)")
+    parser.add_argument("--task-a-dir", type=str, default=None,
+                        help="Path to original Task A result dir with checkpoints/ (required with --cross-dataset)")
+    parser.add_argument("--output-dir-override", type=str, default=None,
+                        help="Override output directory (for cross-dataset result dirs)")
     args = parser.parse_args()
 
     if args.ewc and args.si:
         parser.error("--ewc and --si are mutually exclusive; choose one regularization method")
+    if args.cross_dataset and not args.task_a_dir:
+        parser.error("--task-a-dir is required with --cross-dataset")
 
     cfg = load_config(args.config)
     train_cfg = cfg["training"]
     forget_cfg = cfg["forgetting"]
     device = torch.device(cfg.get("device", "cuda") if torch.cuda.is_available() else "cpu")
     output_dir = cfg["output_dir"]
+
+    # Output directory override (for cross-dataset)
+    if args.output_dir_override:
+        output_dir = args.output_dir_override
+        cfg["output_dir"] = output_dir
 
     # Multi-seed support: override seed and redirect output
     if args.seed is not None:
@@ -109,16 +123,38 @@ def main():
     set_seed(cfg["seed"])
 
     # Data
-    data = get_split_dataset(cfg)
-    task_a_train, task_a_test = data.get_task_a(batch_size=args.si_batch_size)
-    task_b_train, task_b_test = data.get_task_b(batch_size=train_cfg["batch_size"])
+    if args.cross_dataset:
+        # Cross-dataset: Task A from original config, Task B from different dataset
+        task_a_dataset = cfg.get("dataset", "cifar100")
+        print(f"  Cross-dataset mode: Task A = {task_a_dataset}, Task B = {args.cross_dataset}")
+
+        # Task A data (for evaluation and Fisher/SI computation)
+        data = get_split_dataset(cfg)
+        task_a_train, task_a_test = data.get_task_a(batch_size=args.si_batch_size)
+
+        # Task B data (full cross-dataset, all classes)
+        task_b_train, task_b_test, xd_num_classes = get_cross_dataset_task_b(
+            args.cross_dataset, cfg["data_dir"],
+            batch_size=train_cfg["batch_size"],
+            seed=cfg.get("seed", 42),
+        )
+        cfg["num_classes_b"] = xd_num_classes
+        print(f"  Task B ({args.cross_dataset}): {xd_num_classes} classes")
+    else:
+        # Standard within-dataset split
+        data = get_split_dataset(cfg)
+        task_a_train, task_a_test = data.get_task_a(batch_size=args.si_batch_size)
+        task_b_train, task_b_test = data.get_task_b(batch_size=train_cfg["batch_size"])
 
     print(f"  Task A test: {len(task_a_test.dataset)} samples")
     print(f"  Task B train: {len(task_b_train.dataset)}, test: {len(task_b_test.dataset)} samples")
 
     # Load Task A model
     model = get_model(cfg["architecture"], num_classes=cfg["num_classes_a"]).to(device)
-    ckpt_path = args.checkpoint or os.path.join(output_dir, "checkpoints", "task_a_best.pt")
+    if args.cross_dataset:
+        ckpt_path = args.checkpoint or os.path.join(args.task_a_dir, "checkpoints", "task_a_best.pt")
+    else:
+        ckpt_path = args.checkpoint or os.path.join(output_dir, "checkpoints", "task_a_best.pt")
     _, task_a_acc = load_checkpoint(ckpt_path, model)
     print(f"  Task A model accuracy: {task_a_acc:.1%}")
 
@@ -372,6 +408,11 @@ def main():
         "final_task_b_acc": final_b_acc,
         "curve": forgetting_curve,
     }
+    if args.cross_dataset:
+        metadata["cross_dataset"] = True
+        metadata["task_a_dataset"] = cfg.get("dataset", "cifar100")
+        metadata["task_b_dataset"] = args.cross_dataset
+        metadata["task_a_dir"] = args.task_a_dir
     if args.ewc:
         metadata["ewc"] = True
         metadata["ewc_lambda"] = args.ewc_lambda
