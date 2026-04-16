@@ -1,0 +1,92 @@
+# EXP-04: Topological Dynamics of Grokking — Seed 7777 Only
+# Identical to exp04_pilot.yaml but runs only seed 7777
+
+experiment:
+  name: exp04_grokking_topology
+  phase: pilot
+  description: "Single seed 7777 run for pilot completion"
+
+task:
+  type: modular_addition
+  modulus: 97
+  train_fraction: 0.5
+
+model:
+  type: transformer_decoder
+  n_layers: 1
+  d_model: 128
+  n_heads: 4
+  dropout: 0.0
+
+training:
+  optimizer: adamw
+  learning_rate: 1.0e-3
+  weight_decay: 0.03
+  total_steps: 100000
+  batch_size: full
+
+seeds: [7777]
+
+checkpoints:
+  standard_cadence: 2000
+  fine_cadence: 500
+  fine_cadence_start: 80000
+
+topology:
+  method: loss_landscape_slices
+  grid_size: 50
+  n_slices: 5
+  direction_norm: filter
+  primary: h0_total_persistence
+  secondary:
+    - h0_significant_count
+    - h0_persistence_entropy
+    - h0_median_persistence
+  exploratory:
+    - h0_feature_count
+    - h1_feature_count
+    - h1_total_persistence
+    - h1_max_persistence
+    - h1_persistence_entropy
+  aggregation: per_slice_then_average
+
+baselines:
+  local_geometry:
+    - commutator_defect
+    - sharpness
+  global:
+    - spectral_concentration
+  simple_controls:
+    - weight_norm_l2
+    - training_loss_curvature
+    - generalization_gap
+    - validation_loss_slope
+
+onset:
+  metric: test_accuracy
+  threshold: 0.90
+  condition: train_accuracy_above
+  condition_threshold: 0.99
+  sensitivity_thresholds: [0.80, 0.95]
+
+evaluation:
+  pre_grokking_window_fraction: 0.10
+  pre_grokking_window_sensitivity: [0.05, 0.20]
+  reliability_threshold: 0.70
+  changepoint:
+    method: pelt
+    penalty: 3.0
+    robustness_method: threshold
+    robustness_n_std: 2.0
+
+pilot_gate:
+  min_consistent_seeds: 3
+  criterion: "At least one PH statistic shows consistent directional behavior across >= 3/5 runs prior to grokking onset"
+
+full_study:
+  weight_decay_sweep: [0.03, 0.1, 0.3]
+  seeds_per_condition: 30
+  slice_stability_control:
+    enabled: true
+    n_runs: 10
+    slice_counts: [5, 10]

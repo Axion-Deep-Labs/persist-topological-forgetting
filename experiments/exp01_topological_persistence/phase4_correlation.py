@@ -502,8 +502,13 @@ def single_run_analysis(result_dir):
         print(f"  H0 total persistence: {topo.get('H0', 0):.4f}")
 
 
-def cross_architecture_analysis(result_dirs):
-    """Correlate ALL metrics with forgetting across architectures."""
+def cross_architecture_analysis(result_dirs, output_tag=None):
+    """Correlate ALL metrics with forgetting across architectures.
+
+    If output_tag is provided, it overrides the auto-detected dataset tag for the
+    output filename. Used by cross-dataset analysis to write
+    correlation_results{output_tag}.json (e.g., correlation_results_xd_cifar100_to_cub200.json).
+    """
     print("=" * 70)
     print("CROSS-ARCHITECTURE CORRELATION ANALYSIS")
     print("=" * 70)
@@ -532,6 +537,9 @@ def cross_architecture_analysis(result_dirs):
         # Get architecture class (strip dataset suffix for lookup)
         label = os.path.basename(rdir)
         lookup_key = label
+        # Strip cross-dataset suffix first if present (e.g., _xd_cub200)
+        if "_xd_" in lookup_key:
+            lookup_key = lookup_key.split("_xd_")[0]
         for suffix in ("_cub200", "_resisc45", "_cifar10", "_cifar100", "_imagenet100"):
             lookup_key = lookup_key.replace(suffix, "")
         arch_name, arch_class = ARCH_CLASSES.get(lookup_key, (label, "Unknown"))
@@ -913,6 +921,7 @@ def cross_architecture_analysis(result_dirs):
 
         # ── H1 Analysis ──
         print(f"\n  --- H1 Analysis ---")
+        rho_part, p_part = float('nan'), float('nan')
         if len(set(wrn_h1)) > 1:
             rho_h1, p_h1 = stats.spearmanr(wrn_h1, wrn_ret)
             rho_params, p_params = stats.spearmanr(wrn_params, wrn_ret)
@@ -1235,20 +1244,51 @@ def cross_architecture_analysis(result_dirs):
             "bonferroni_alpha": float(bonf_alpha),
         },
     }
-    # Detect dataset from directory names
-    first_label = os.path.basename(result_dirs[0])
-    if first_label.endswith("_cub200"):
-        dataset_tag = "_cub200"
-    elif first_label.endswith("_resisc45"):
-        dataset_tag = "_resisc45"
-    elif first_label.endswith("_imagenet100"):
-        dataset_tag = "_imagenet100"
+    # Detect dataset from directory names (or use override for cross-dataset)
+    if output_tag is not None:
+        dataset_tag = output_tag
     else:
-        dataset_tag = "_cifar100"
+        first_label = os.path.basename(result_dirs[0])
+        if first_label.endswith("_cub200"):
+            dataset_tag = "_cub200"
+        elif first_label.endswith("_resisc45"):
+            dataset_tag = "_resisc45"
+        elif first_label.endswith("_imagenet100"):
+            dataset_tag = "_imagenet100"
+        else:
+            dataset_tag = "_cifar100"
     out_path = os.path.join(os.path.dirname(result_dirs[0]), f"correlation_results{dataset_tag}.json")
     with open(out_path, "w") as f:
         json.dump(results, f, indent=2)
     print(f"\n  Results saved to: {out_path}")
+
+
+def discover_cross_dataset_dirs(results_root, task_a, task_b):
+    """Find all dirs whose Task A is task_a and whose Task B (target) is task_b.
+
+    Naming convention:
+      cifar100 source: exp01_<arch>_xd_<target>          (no source suffix)
+      other source:    exp01_<arch>_<source>_xd_<target>
+
+    Filters out dirs missing the naive forgetting curve.
+    """
+    pattern = os.path.join(results_root, f"exp01*_xd_{task_b}")
+    candidates = sorted(glob.glob(pattern))
+    dirs = []
+    for d in candidates:
+        name = os.path.basename(d)
+        prefix = name.split("_xd_")[0]  # everything before "_xd_"
+        if task_a == "cifar100":
+            # Source is cifar100 -> prefix must NOT end in any other dataset suffix
+            if any(prefix.endswith(s) for s in ("_cub200", "_resisc45", "_imagenet100")):
+                continue
+        else:
+            # Source is non-cifar100 -> prefix must end in the source suffix
+            if not prefix.endswith(f"_{task_a}"):
+                continue
+        if os.path.exists(os.path.join(d, "forgetting", "forgetting_curve.json")):
+            dirs.append(d)
+    return dirs
 
 
 def main():
@@ -1256,9 +1296,21 @@ def main():
     parser.add_argument("--config", type=str, default=None)
     parser.add_argument("--results-dirs", nargs="+", type=str, default=None,
                         help="Multiple result directories for cross-architecture analysis")
+    parser.add_argument("--cross-dataset-pair", type=str, default=None,
+                        help="Cross-dataset pair as 'task_a:task_b' (e.g., 'cifar100:cub200'). "
+                             "Auto-discovers exp01_*_xd_<task_b> dirs whose Task A is task_a.")
+    parser.add_argument("--results-root", type=str, default="results",
+                        help="Root directory for cross-dataset discovery (default: results)")
     args = parser.parse_args()
 
-    if args.results_dirs and len(args.results_dirs) > 1:
+    if args.cross_dataset_pair:
+        task_a, task_b = args.cross_dataset_pair.split(":")
+        dirs = discover_cross_dataset_dirs(args.results_root, task_a, task_b)
+        if len(dirs) < 3:
+            parser.error(f"Found only {len(dirs)} dirs for {task_a}->{task_b}. Need >= 3.")
+        print(f"Discovered {len(dirs)} cross-dataset dirs for {task_a} -> {task_b}")
+        cross_architecture_analysis(dirs, output_tag=f"_xd_{task_a}_to_{task_b}")
+    elif args.results_dirs and len(args.results_dirs) > 1:
         cross_architecture_analysis(args.results_dirs)
     elif args.config:
         cfg = load_config(args.config)
@@ -1266,7 +1318,7 @@ def main():
     elif args.results_dirs and len(args.results_dirs) == 1:
         single_run_analysis(args.results_dirs[0])
     else:
-        parser.error("Provide --config or --results-dirs")
+        parser.error("Provide --config, --results-dirs, or --cross-dataset-pair")
 
 
 # Need torch for loading checkpoints

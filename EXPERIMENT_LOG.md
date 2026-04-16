@@ -1,5 +1,13 @@
 # Experiment Log
 
+## Submission Artifacts
+
+| Venue | Date | Commit SHA | Tag | Artifact |
+|-------|------|------------|-----|----------|
+| CoLLAs 2026 | 2026-04-15 | `7d88806` | `collas-2026-submitted` | `paper/collas/main.pdf` |
+
+---
+
 ## EXP-04: Topological Dynamics of Grokking
 
 ### Current State (2026-03-26)

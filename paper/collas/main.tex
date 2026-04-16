@@ -1,4 +1,15 @@
 % CoLLAs 2026 submission — using official style file
+%
+% ── OpenReview submission metadata (not rendered) ──────────────────
+% Title: Basin Fragmentation Predicts Regularization Benefit in Continual
+%        Learning Under Dataset-Dependent Regimes
+% Author OpenReview ID: ~Joshua_R_Gutierrez2
+% Keywords: continual learning; catastrophic forgetting; persistent homology;
+%           loss landscape geometry; elastic weight consolidation
+% TL;DR: Persistent homology of loss landscape cross-sections predicts the
+%        magnitude of EWC benefit in continual learning, with dataset-dependent
+%        regimes and method specificity (no signal for SI).
+% ───────────────────────────────────────────────────────────────────
 \documentclass{article}
 \usepackage{collas2026_conference,times}
 
@@ -15,7 +26,7 @@
 
 %\collasfinalcopy % Uncomment for camera-ready version, but NOT for submission.
 
-\title{Basin Fragmentation Predicts Regularization Benefit\\in Continual Learning}
+\title{Basin Fragmentation Predicts Regularization Benefit in Continual Learning\\Under Dataset-Dependent Regimes}
 
 \author{Antiquus S.~Hippocampus \\
 Department of Computer Science\\
@@ -32,7 +43,7 @@ Random University\\
 
 % ════════════════════════════════════════
 \begin{abstract}
-We introduce a geometric perspective on mitigation sensitivity in continual learning. Using persistent homology to extract topological features from loss landscape cross-sections, we show that landscape topology provides predictive signal for regularization benefit in specific regimes, with identifiable boundary conditions. Across 19 architectures and 3 datasets (57 configurations, 0.3M--44.7M parameters trained from scratch at 32$\times$32), $H_0$ (connected components) is predictive of EWC benefit after controlling for model capacity and standard landscape statistics (sharpness, Fisher trace, loss barrier, weight norm): on RESISC-45, topology explains more variance than model size ($R^2 = 0.645$ vs.\ $0.242$, $p < 0.001$) and retains significance after controlling for every baseline ($p < 0.001$); pooled across datasets ($n = 57$), $H_0$ retains significance ($p = 0.012$). Preliminary scale validation on ImageNet-100 (8 pretrained architectures, 20M--304M parameters at 224$\times$224) suggests that $H_1$ (loops), not $H_0$, may carry the topological signal at larger scale ($\rho = 0.93$, $p = 0.0007$), though $n = 8$ and a different training regime limit the strength of this observation. A key discriminator: testing synaptic intelligence (SI) as a second curvature-aware method yields zero topology moderation ($p = 1.000$), sharpening the hypothesis to EWC-specific rather than general regularization effects. We propose the \emph{basin fragmentation hypothesis}, provide explicit falsification targets, and report which have been addressed.
+We introduce a geometric perspective on mitigation sensitivity in continual learning. Using persistent homology to extract topological features from loss landscape cross-sections, we show that landscape topology provides predictive signal for regularization benefit in specific regimes, with identifiable boundary conditions. Across 19 architectures and 3 datasets (57 configurations, 0.3M--44.7M parameters trained from scratch at 32$\times$32), $H_0$ (connected components) is predictive of EWC benefit after controlling for model capacity and standard landscape statistics (sharpness, Fisher trace, loss barrier, weight norm): on RESISC-45, topology explains more variance than model size ($R^2 = 0.645$ vs.\ $0.242$, $p < 0.001$) and retains significance after controlling for every baseline ($p < 0.001$), with partial replication on CIFAR-100 and a null on CUB-200; pooled across datasets ($n = 57$), $H_0$ retains significance ($p = 0.012$). Preliminary scale validation on ImageNet-100 (8 pretrained architectures, 20M--304M parameters at 224$\times$224) suggests that $H_1$ (loops), not $H_0$, may carry the topological signal at larger scale ($\rho = 0.93$, $p = 0.0007$), though $n = 8$ and a different training regime limit the strength of this observation. A key discriminator: testing synaptic intelligence (SI) as a second curvature-aware method yields zero topology moderation ($p = 1.000$), sharpening the hypothesis to EWC-specific rather than general regularization effects. We propose the \emph{basin fragmentation hypothesis}, provide explicit falsification targets, and report which have been addressed.
 \end{abstract}
 
 % ════════════════════════════════════════
@@ -52,7 +63,7 @@ We answer affirmatively for EWC, with important caveats. Our contributions:
 
     \item \textbf{Preliminary scale validation.} On ImageNet-100 (8 pretrained architectures, 20M--304M parameters), $H_1$ (loops) shows a strong correlation with retention ($\rho = 0.93$, $p = 0.0007$) where $H_0$ does not, suggesting that the informative topological dimension may shift with scale. This observation requires replication.
 
-    \item \textbf{Method specificity as a key discriminator.} SI shows zero topology moderation ($p = 1.000$), sharpening the hypothesis from ``topology predicts regularization benefit'' to ``topology predicts EWC-specific benefit.'' This narrows the mechanism and rules out a trivially general interpretation.
+    \item \textbf{Method specificity as a key discriminator.} SI shows zero topology moderation ($p = 1.000$), sharpening the hypothesis from ``topology predicts regularization benefit'' to ``topology predicts EWC-specific benefit.'' This narrows the mechanism and provides preliminary evidence against a trivially general interpretation.
 
     \item \textbf{Cross-architecture, cross-dataset evaluation.} 27 architectures spanning CNNs, Vision Transformers, and MLP-based designs across 4 datasets (65 total configurations). Open-source release of all code and results.\footnote{URL withheld for review.}
 \end{enumerate}
@@ -198,7 +209,7 @@ CUB-200    & 0.31 & [$-$0.22, 0.78] & 0.190 & 0.26 \\
 \end{tabular}
 \end{table}
 
-\subsection{H0 Is Not a Capacity Proxy}
+\subsection{H0 Is Not Fully Reducible to Capacity}
 
 Since $H_0$ correlates with model size (Section~\ref{sec:wrn}), the natural concern is that it merely proxies for parameter count. Table~\ref{tab:capacity_control} answers this directly. On RESISC-45, $H_0$ alone explains more variance ($R^2 = 0.645$) than parameter count ($R^2 = 0.242$), and remains highly significant in the joint model ($p < 0.001$). Pooled across datasets, $H_0$ retains significance ($p = 0.012$) with a partial correlation of $\rho = +0.33$ ($p = 0.013$). On CIFAR-100, $H_0$ is marginal ($p = 0.056$), directionally consistent but underpowered at $n = 19$; post-hoc power analysis indicates that $n = 19$ provides approximately 55\% power to detect an effect of this magnitude in a two-predictor model, suggesting the marginal result reflects limited sample size rather than absent signal. Adding depth as a third predictor does not reach significance on any dataset ($p > 0.26$) and does not change the $H_0$ coefficient.
 
@@ -300,7 +311,7 @@ RESISC-45  & ret@100 & $-$0.32 & $-$0.33 & 0.566 \\
 
 The CUB-200 result is notable: parameters alone systematically predict high retention for architectures that forget most (negative $\rho$), while topology corrects this. The matched-dimensionality null control confirms the CUB-200 improvement exceeds the 95th percentile of random features with the same dimensionality.
 
-\textbf{Pooled interaction model.} The full interaction model (Equations 4--5) confirms moderation: adding $H_0$ and its dataset interactions improves $R^2$ from 0.502 to 0.587 (permutation $p = 0.046$). Table~\ref{tab:partial_effects} presents the per-dataset partial effects with 95\% clustered bootstrap confidence intervals. For EWC benefit, the $H_0$ effect excludes zero on CIFAR-100 and RESISC-45 but not CUB-200, consistent with the per-dataset correlations in Table~\ref{tab:ewc_corr}. Notably, the retention outcome (ret@10) shows a different pattern: only CUB-200 excludes zero, suggesting that topology's relationship to raw forgetting vs.\ mitigation benefit involves different mechanisms. Figure~\ref{fig:pooled_interaction} visualizes the moderation pattern.
+\textbf{Pooled interaction model.} The full interaction model (Equations 4--5) quantifies the observed moderation pattern: adding $H_0$ and its dataset interactions improves $R^2$ from 0.502 to 0.587 (permutation $p = 0.046$). Table~\ref{tab:partial_effects} presents the per-dataset partial effects with 95\% clustered bootstrap confidence intervals. For EWC benefit, the $H_0$ effect excludes zero on CIFAR-100 and RESISC-45 but not CUB-200, consistent with the per-dataset correlations in Table~\ref{tab:ewc_corr}. Notably, the retention outcome (ret@10) shows a different pattern: only CUB-200 excludes zero, suggesting that topology's relationship to raw forgetting vs.\ mitigation benefit involves different mechanisms. Figure~\ref{fig:pooled_interaction} visualizes the moderation pattern.
 
 \begin{table}[t]
 \centering
@@ -369,7 +380,7 @@ The notable observation is that $H_1$ (loops), not $H_0$ (connected components),
 
 This result is among the most informative in the study. SI \citep{zenke2017continual} is a second curvature-aware regularization method that uses online path integrals of per-parameter contributions rather than the post-hoc Fisher information matrix used by EWC. If the basin fragmentation hypothesis described a general property of curvature-based regularization, SI should show comparable topology moderation. It does not.
 
-On ImageNet-100, we compute SI benefit alongside EWC benefit for all 8 architectures. The 4-dataset pooled interaction model yields $p = 1.000$ for SI benefit (both full block and interaction terms), indicating zero topology moderation. This sharpens the hypothesis considerably: the topology--benefit relationship is specific to EWC's Fisher-based penalty, not a general consequence of curvature-aware regularization. The distinction matters because it narrows the mechanism. EWC penalizes deviation from the original minimum weighted by per-parameter Fisher information (local curvature at the optimum). SI accumulates importance along the optimization path. If basin fragmentation determines how much a fixed-point penalty helps, it need not determine how much a path-integral penalty helps. The SI null directly addresses falsification target~1 (Section~\ref{sec:hypothesis}) and transforms the hypothesis from ``topology predicts regularization benefit'' to ``topology predicts Fisher-based regularization benefit.''
+On ImageNet-100, we compute SI benefit alongside EWC benefit for all 8 architectures. The 4-dataset pooled interaction model yields $p = 1.000$ for SI benefit (both full block and interaction terms), indicating zero topology moderation. This refines the hypothesis: the topology--benefit relationship appears specific to EWC's Fisher-based penalty, not a general consequence of curvature-aware regularization. The distinction matters because it narrows the mechanism. EWC penalizes deviation from the original minimum weighted by per-parameter Fisher information (local curvature at the optimum). SI accumulates importance along the optimization path. If basin fragmentation determines how much a fixed-point penalty helps, it need not determine how much a path-integral penalty helps. The SI null directly addresses falsification target~1 (Section~\ref{sec:hypothesis}) and suggests a narrower hypothesis, from ``topology predicts regularization benefit'' to ``topology predicts Fisher-based regularization benefit.''
 
 % ════════════════════════════════════════
 \section{The Basin Fragmentation Hypothesis}
@@ -436,11 +447,11 @@ The original study targeted topology as a direct forgetting predictor. CIFAR-100
 
 We introduce a geometric lens on mitigation sensitivity in continual learning. Across 27 architectures and 4 datasets (65 configurations), we show that $H_0$ persistent homology of loss landscapes provides predictive signal for the magnitude of EWC benefit under specific dataset conditions, and that this signal survives after controlling for model capacity. The effect is strongest on RESISC-45 ($R^2 = 0.645$ vs.\ $0.242$ for parameter count, $p < 0.001$), replicates on CIFAR-100, and is absent on CUB-200. Pooled across the 3 small-scale datasets ($n = 57$), $H_0$ retains significance ($p = 0.012$) after capacity and depth controls.
 
-Preliminary scale validation on ImageNet-100 ($n = 8$) suggests $H_1$ (loops) may replace $H_0$ as the informative topological feature at larger scale ($\rho = 0.93$, $p = 0.0007$), though the different training regime and small sample limit this observation. The SI null ($p = 1.000$) is among the study's most informative results: it sharpens the hypothesis from general curvature-based regularization to EWC-specific Fisher-based regularization, narrowing the mechanism and ruling out a trivially general interpretation.
+Preliminary scale validation on ImageNet-100 ($n = 8$) suggests $H_1$ (loops) may replace $H_0$ as the informative topological feature at larger scale ($\rho = 0.93$, $p = 0.0007$), though the different training regime and small sample limit this observation. The SI null ($p = 1.000$) is among the study's most informative results: it sharpens the hypothesis from general curvature-based regularization to EWC-specific Fisher-based regularization, narrowing the mechanism and providing preliminary evidence against a trivially general interpretation.
 
 While topology explains variance in EWC benefit beyond all tested baselines, its out-of-sample predictive performance (LOAO) is dataset-dependent and not uniformly improved over parameter-based models. The strength of the current evidence is in variance explanation and controlled regression, not in consistent cross-architecture prediction.
 
-The basin fragmentation hypothesis offers a testable mechanism with explicit falsification targets, one of which (SI specificity) has already been confirmed. These results are preliminary: the strongest signal is on one of three datasets, CUB-200 constitutes an unexplained boundary condition, and the scale validation has only $n = 8$. Whether the geometric lens holds robustly at production scale remains the central open question. We view this work as hypothesis-generating empirical science aimed at identifying structure that future theory should explain, and commit to pre-registered confirmatory replication.
+The basin fragmentation hypothesis offers a testable mechanism with explicit falsification targets, one of which (SI specificity) has already been confirmed. These results are preliminary: the effect appears on two of three small-scale datasets (strongest on RESISC-45, replicated on CIFAR-100), CUB-200 constitutes an unexplained boundary condition, and the scale validation has only $n = 8$. Whether the geometric lens holds robustly at production scale remains the central open question. We view this work as hypothesis-generating empirical science aimed at identifying structure that future theory should explain, and commit to pre-registered confirmatory replication.
 
 % ════════════════════════════════════════
 \bibliography{../references}
