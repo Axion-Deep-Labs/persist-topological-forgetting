@@ -26,7 +26,9 @@
 ### Publications & External
 
 - [ ] **CoLLAs 2026 submission route:** Awaiting program chairs' response to late-registration email. When response arrives, choose among main track / Work-In-Progress (open until Jun 30) / arXiv-only. See memory `collas_2026_submission_state.md`.
-- [ ] **NSF SBIR proposal (PERSIST):** AlienTT kickoff 2026-04-21. Follow-up actions TBD from meeting.
+- [x] **NSF SBIR kickoff (AlienTT, 2026-04-21):** Phase 1 deliverable reframed from "diagnostic validation" to "diagnostic + mitigation recommendation before retraining." Medical imaging locked as primary vertical (FDA PCCP hook). Market memo v1 filed at `~/Corporate/AxionDeep/Grants/NSF-SBIR/persist/market_memo_2026-04-21.md`. Corporate repo tag `nsf-sbir-framing-2026-04-21`.
+- [ ] **NSF SBIR proposal artifacts revision:** PERSIST_Pitch_Deck.md + R&D plan + Phase 1 milestones need rewrite around mitigation discovery + medical-imaging validation. Market memo is the source doc. Old ("scale validation") framing must not go out externally unchanged.
+- [ ] **NSF SBIR customer discovery:** 2-3 conversations with medical-imaging AI vendors (Aidoc / Rad AI / Paige / RapidAI / Viz.ai / HeartFlow). Script should probe PCCP workflow pain points, non-regression methodology, pricing anchors for regulatory-alignment tooling.
 
 ## Pending / Future
 
