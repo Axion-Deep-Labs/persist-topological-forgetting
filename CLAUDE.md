@@ -142,6 +142,23 @@ Criterion: at least 1 PH stat shows consistent directional behavior in >= 3/5 se
 - **Key Phase I-A findings:** H1 (not H0) is dominant predictor at ImageNet-100 scale (rho=0.9341, p=0.0007). Original 3-dataset Phase 6 replicates perfectly. SI shows zero topology moderation (EWC-specific).
 - **Next:** Phase I-B pre-registered replication if signal holds. 50-100+ architectures, longer task sequences.
 
+### Phase I-B: Cross-Dataset Forgetting (IN PROGRESS — 2026-04-21)
+
+> **This section is the authoritative source for Phase I-B status.** `~/Corporate/CLAUDE.md` and memory `phase_1b_status.md` mirror this state. Update here first, propagate outward. State locked at commit tag `phase1b-state-2026-04-21`.
+
+**3-line snapshot:**
+- Sweep: complete (114/114 cross-dataset runs)
+- G1 metric audit: executed 2026-04-21, all gates passed; restricted-softmax re-eval submitted as SLURM 527670
+- Status: **Phase 4 analysis BLOCKED pending re-eval outputs**
+
+**Detail:**
+- **Sweep:** 114/114 complete (6 ordered pairs × 19 archs across {cifar100, cub200, resisc45}). All SLURM jobs exited 0:0.
+- **G1 metric audit:** Full-softmax retention has classifier-head recency bias (Task B logits inflate during training, biasing Task A argmax). Decision framework in `drafts/phase_1b_g1_metric_audit_memo.md` — parallel-metric not silent swap, three-tier agreement rule, step-0 sanity gate.
+- **Pre-gate checks (all passed 2026-04-21):** 1824/1824 step checkpoints on disk, 0 "Task B barely learned" warnings, step_*.pt contains full expanded `K_A+K_B` classifier state (verified for resnet18 base, guaranteed for all 19 archs by phase3 ordering).
+- **Restricted-softmax re-eval (SLURM job `527670`, submitted 2026-04-21):** entry point `experiments/exp01_topological_persistence/phase3b_restricted_softmax_eval.py`, wrapper `slurm/run_phase3b_restricted.sh`. Per-run output: `results/exp01_*_xd_*/forgetting{,_ewc}/forgetting_curve_restricted.json`. Aggregate: `results/phase3b_restricted_summary.json`. Step-0 sanity gate built in.
+- **BLOCKED:** Phase 4/5/6 analysis on cross-dataset results is blocked until restricted-vs-full agreement is evaluated and the primary metric decided.
+- **"Alien meeting" clarification:** 2026-04-21 is the AlienTT NSF SBIR kickoff (grant consultant), not a research decision meeting. G1 is an internal call made on re-eval results.
+
 ## Rules
 - NEVER commit data/ or results/ directories
 - All experiments must be reproducible via seed in config (landscape seed is randomized but logged in topology_summary.json)

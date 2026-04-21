@@ -188,6 +188,34 @@ Adding ImageNet-100 dilutes signal slightly (EWC benefit p: 0.046 -> 0.063). SI 
 
 ---
 
+### Phase I-B: Cross-Dataset Forgetting (2026-04 sweep + G1 metric audit)
+
+**Sweep complete (2026-04-16):** 114/114 cross-dataset runs finished on NMSU Discovery. 6 ordered pairs × 19 architectures × 2 conditions (naive + EWC). Pairs: `{cifar100, cub200, resisc45}` direction-oriented. No RESISC45 failures remained after backfill via `submit_missing_xd.sh` (torchgeo dependency fixed 2026-04-14).
+
+**G1 metric audit (2026-04-16 → 2026-04-21):**
+
+The cross-dataset retention metric in `phase3_sequential_forgetting.py` is a full-softmax argmax over the expanded `K_A + K_B` classifier head. Task B training inflates only the Task B rows of `W, b`, so Task A test images can lose the argmax to a Task B class even with an unchanged backbone — classifier-head recency bias. This breaks direct comparability to Phase I-A within-dataset retention.
+
+Decision framework locked in `drafts/phase_1b_g1_metric_audit_memo.md`: **parallel-metric (not silent swap)**, heuristic three-tier agreement rule (full-vs-restricted rank corr >0.9 / 0.7–0.9 / <0.7), step-0 sanity gate before any divergence is interpreted.
+
+**Pre-decision gates (all passed 2026-04-21):**
+- Action 1 — step-level checkpoint existence: `find ... -name "step_*.pt" | wc -l = 1824` (exactly 114 × 2 × 8, the expected count)
+- Action 2 — G2 sanity parse: `grep -l "Task B barely learned" ...*xd*.out | wc -l = 0` (no G2 exclusion list needed)
+- Assumption (a) verified on ResNet-18: `step_10.pt` has `fc.weight (250, 512)` + `fc.bias (250,)` = full expanded K_A=50 + K_B=200 classifier state. Phase3's `save_checkpoint` runs after head expansion (L216-238 precede L384-388) so the guarantee holds for all 19 archs by construction.
+
+**Restricted-softmax re-evaluation submitted (2026-04-21, SLURM job 527670):**
+- Script: `experiments/exp01_topological_persistence/phase3b_restricted_softmax_eval.py`
+- Wrapper: `slurm/run_phase3b_restricted.sh` (A100, 6h cap, 24GB)
+- Per run dir: walks every `*_xd_*/forgetting*/step_*.pt`, evaluates Task A test with argmax restricted to `[0, K_A)`, writes `forgetting_curve_restricted.json`. Also recomputes full-softmax argmax as a reproduction check (`max |full - recomputed_full|` per run).
+- Step-0 sanity (Action 4 from memo) built in: re-evaluates `task_a_best.pt` on Task A test; expected to match each config's `initial_task_a_acc` within 0.5%.
+- Top-level output: `results/phase3b_restricted_summary.json` for downstream analysis.
+
+**Phase 4+ analysis is frozen** until the re-eval lands and the three-tier decision is applied.
+
+**Note on "Alien meeting" framing:** Earlier internal notes pinned the G1 decision to a "2026-04-21 Alien meeting." That date is actually the AlienTT NSF SBIR kickoff (grant proposal strategy), not a research decision meeting. G1 is an internal call made by Joshua on re-eval results.
+
+---
+
 ### Phase I: HPC Setup (2026-03-23)
 
 **NMSU Discovery cluster access established.**

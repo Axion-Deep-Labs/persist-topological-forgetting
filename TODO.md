@@ -1,29 +1,36 @@
-# Axion Deep Labs -- TODO
+# Axion Deep Labs Research -- TODO
 
-## Urgent / Blocking
+## Active
 
-- [ ] **ArXiv endorsement:** Email Son Tran (tson@cs.nmsu.edu) for cs.LG endorsement. Code: M93UIA. Reference conversations with Dr. Huiping Cao. Deadline: wait for response or Thursday 2026-03-27, whichever comes first. If he can't endorse for cs.LG, check if cs.AI + cross-list works, or find endorser from cited papers.
-- [x] **HPC datasets:** ImageNet-1K downloaded and extracted on Discovery (155GB, 2026-03-27).
-- [x] **EXP-04 calibration sweep:** WD=0.03 is optimal (70K-step grokking delay). Config updated.
-- [x] **EXP-04 pilot bugs:** Fixed H0 count (constant), commutator defect (zero), H1 (dead). See CLAUDE.md for details.
+### PERSIST (EXP-01)
 
-## This Week
+- [ ] **Phase I-B restricted-softmax re-eval (in progress):** SLURM job `527670` submitted 2026-04-21. Produces `results/phase3b_restricted_summary.json` + per-run `forgetting_curve_restricted.json`. When complete:
+  - Verify step-0 sanity gate (per-config restricted ret_A(0) matches `initial_task_a_acc` to within 0.5%)
+  - Compute full-vs-restricted rank correlation, mean |Δ|, per-pair breakdown
+  - Apply three-tier decision rule from `drafts/phase_1b_g1_metric_audit_memo.md`
+  - If primary metric chosen, unfreeze Phase 4 analysis
+- [ ] **Phase I-B SI cross-dataset submission (orthogonal to G1):** 114 additional jobs. Phase I-A showed SI null; Phase I-B cross-dataset hasn't been run for SI.
+- [ ] **Phase I-B preregistration framing for writeup:** exploratory vs confirmatory language; per `scientific_design_standards.md` memory.
+- [ ] **ArXiv endorsement:** Email Son Tran (tson@cs.nmsu.edu) for cs.LG endorsement. Code: M93UIA. Reference conversations with Dr. Huiping Cao. If cs.LG endorsement not feasible, try cs.AI + cross-list, or find endorser from cited papers.
+- [x] **Phase I-A training:** 8/8 valid ImageNet-100 configs complete through Phases 1-3 (2026-04-01). ViT-H/14 and WRN-40-10 dropped.
+- [x] **Phase I-A analysis:** Phase 4-6 complete on HPC (2026-04-02). H1 dominant at scale, 3-dataset replicates, SI null.
 
-- [ ] **EXP-04 re-analysis:** Rerun analysis on all 5 seeds with fixed topology.py + baselines.py. Command: `.venv/bin/python -m experiments.exp04_grokking_topology.run_pilot --config configs/exp04_pilot.yaml --skip-training`
-- [ ] **EXP-04 seed 7777:** Needs full run (training + analysis).
-- [ ] **EXP-04 pilot gate:** After re-analysis, check if any PH stat shows consistent directional behavior in >= 3/5 seeds before grokking onset. If yes, proceed to full study.
-- [x] **PERSIST Phase I-A training:** 8/8 valid ImageNet-100 configs complete through Phases 1-3 (2026-04-01). ViT-H/14 and WRN-40-10 dropped.
-- [x] **PERSIST Phase I-A analysis:** Phase 4-6 complete on HPC (2026-04-02). H1 dominant at scale, 3-dataset replicates, SI null.
-- [ ] **PERSIST Phase I-B:** Pre-registered replication. 50-100+ architectures, longer task sequences, investigate H1 signal at scale.
-- [ ] **Demo sites:** Host Pastaggio's, UMO BBQ, BobBea's demos on demo.axiondeepdigital.com. Reach out to owners.
-- [ ] **Reddit:** Day 3 (Mar 26) -- r/SEO, 3 helpful comments.
-- [ ] **Quora:** 1 answer per day on SEO/website/audit questions (no links for first 3-5 answers).
+### EXP-04 (Grokking Topology)
 
-## Pending
+- [ ] **Re-analysis:** Rerun analysis on all 5 seeds with fixed topology.py + baselines.py. Command: `.venv/bin/python -m experiments.exp04_grokking_topology.run_pilot --config configs/exp04_pilot.yaml --skip-training`
+- [ ] **Seed 7777:** Needs full run (training + analysis).
+- [ ] **Pilot gate evaluation:** After re-analysis, check if any PH stat shows consistent directional behavior in ≥ 3/5 seeds before grokking onset. If yes, proceed to full study (30 seeds × 3 WD = 90 runs).
+- [x] **Calibration sweep:** WD=0.03 is optimal (70K-step grokking delay). Config updated.
+- [x] **Pilot bugs:** Fixed H0 count (constant), commutator defect (zero), H1 (dead). See CLAUDE.md.
 
-- [ ] Vesper restructuring (merge folders, purge creds, keep only DeepSeek)
-- [ ] Blog syndication to Dev.to, Hashnode, HackerNoon
-- [ ] Directory submissions for Axion Deep Digital
-- [ ] Backlink critical path: EXP-01 -> arXiv preprint -> Papers With Code / The Gradient / TDS
-- [ ] "61 Websites" article -> blogPosts.ts on axiondeepdigital
-- [ ] CoLLAs paper: Crystal needs OpenReview account (deadline: Apr 16)
+### Publications & External
+
+- [ ] **CoLLAs 2026 submission route:** Awaiting program chairs' response to late-registration email. When response arrives, choose among main track / Work-In-Progress (open until Jun 30) / arXiv-only. See memory `collas_2026_submission_state.md`.
+- [ ] **NSF SBIR proposal (PERSIST):** AlienTT kickoff 2026-04-21. Follow-up actions TBD from meeting.
+
+## Pending / Future
+
+- [ ] 50-100+ architecture expansion for Phase I-B replication
+- [ ] Longer task sequences (10-100+ tasks) for Phase I-B replication
+- [ ] Additional CL methods beyond EWC/SI (e.g., LwF, MAS, PackNet)
+- [ ] HPC dataset staging verified: ImageNet-1K extracted on Discovery (155GB, 2026-03-27)

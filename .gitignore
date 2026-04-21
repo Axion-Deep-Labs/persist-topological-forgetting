@@ -31,6 +31,12 @@ wandb/
 # Corporate (local only, not part of research repo)
 corporate/
 
+# Cisco Secure Client installer (local VPN binary, not a code dep)
+cisco-secure-client-*.sh
+
+# LaTeX stray logs
+texput.log
+
 # LaTeX build artifacts
 paper/*.aux
 paper/*.bbl
