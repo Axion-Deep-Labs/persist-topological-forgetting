@@ -53,7 +53,7 @@ topology:
 
   # Secondary endpoints
   secondary:
-    - h0_significant_count   # H0 features with persistence > median (replaces h0_feature_count)
+    - h0_effective_feature_count   # inverse participation ratio (sum L)^2 / sum(L^2); replaces h0_significant_count which was structurally pinned near n/2
     - h0_persistence_entropy
     - h0_median_persistence
 

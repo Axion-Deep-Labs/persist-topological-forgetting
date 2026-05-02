@@ -1,0 +1,124 @@
+# EXP-04: Topological Dynamics of Grokking — Full Study Config
+#
+# Constrained scaling per pilot decision rule (2026-04-24):
+#   "Does topology add anything beyond existing baselines? If no, we stop."
+#
+# Design (locked, identical to pilot except seed pool and WD sweep):
+#   - 30 fresh seeds (independent of pilot's [42, 137, 256, 1024, 7777])
+#   - 3 weight decay values: 0.03, 0.10, 0.30
+#   - 1 task: modular addition mod 97
+#   - 1 model: 1-layer transformer decoder, d_model=128
+#
+# WD values bracketed by calibration: 0.03 = pilot, 0.10 = mid, 0.30 = high.
+# 0.01 never groks; 1.0+ groks immediately. Per pilot config full_study spec.
+#
+# Total runs: 30 seeds × 3 WD = 90 trajectories.
+
+experiment:
+  name: exp04_grokking_topology
+  phase: full_study
+  description: "30-seed × 3-WD constrained scaling. Decisive comparison: does topology beat weight_norm_l2 as a grokking predictor?"
+
+# --- Task --- (identical to pilot)
+task:
+  type: modular_addition
+  modulus: 97
+  train_fraction: 0.5
+
+# --- Model --- (identical to pilot)
+model:
+  type: transformer_decoder
+  n_layers: 1
+  d_model: 128
+  n_heads: 4
+  dropout: 0.0
+
+# --- Training ---
+training:
+  optimizer: adamw
+  learning_rate: 1.0e-3
+  weight_decay: 0.03  # default; overridden per-job by --weight-decay CLI flag
+  total_steps: 100000
+  batch_size: full
+
+# --- Seeds (30 fresh; first 30 primes for reproducibility) ---
+seeds: [11, 13, 17, 19, 23, 29, 31, 37, 41, 43,
+        47, 53, 59, 61, 67, 71, 73, 79, 83, 89,
+        97, 101, 103, 107, 109, 113, 127, 131, 139, 149]
+
+# --- Weight Decay Sweep (used by submit_exp04_full.sh; not by run_pilot directly) ---
+weight_decay_sweep: [0.03, 0.10, 0.30]
+
+# --- Checkpoints --- (identical to pilot)
+checkpoints:
+  standard_cadence: 2000
+  fine_cadence: 500
+  fine_cadence_start: 80000
+
+# --- Persistent Homology --- (identical to pilot)
+topology:
+  method: loss_landscape_slices
+  grid_size: 50
+  n_slices: 5
+  direction_norm: filter
+  primary: h0_total_persistence
+  secondary:
+    - h0_effective_feature_count
+    - h0_persistence_entropy
+    - h0_median_persistence
+  exploratory:
+    - h0_feature_count
+    - h1_feature_count
+    - h1_total_persistence
+    - h1_max_persistence
+    - h1_persistence_entropy
+  aggregation: per_slice_then_average
+
+# --- Baselines --- (identical to pilot)
+baselines:
+  local_geometry:
+    - commutator_defect
+    - sharpness
+  global:
+    - spectral_concentration
+  simple_controls:
+    - weight_norm_l2
+    - training_loss_curvature
+    - generalization_gap
+    - validation_loss_slope
+
+# --- Grokking Onset Definition --- (identical to pilot)
+onset:
+  metric: test_accuracy
+  threshold: 0.90
+  condition: train_accuracy_above
+  condition_threshold: 0.99
+  sensitivity_thresholds: [0.80, 0.95]
+
+# --- Evaluation ---
+evaluation:
+  pre_grokking_window_fraction: 0.10
+  pre_grokking_window_sensitivity: [0.05, 0.20]
+  reliability_threshold: 0.70
+  changepoint:
+    method: pelt
+    penalty: 3.0
+    robustness_method: threshold
+    robustness_n_std: 2.0
+
+# --- Decisive Test (the actual research question) ---
+decisive_test:
+  hypothesis: "h0_total_persistence at peak provides predictive signal for grokking onset
+               beyond what weight_norm_l2 at the same step provides."
+  null: "h0_total_persistence is redundant with weight_norm_l2 (rho > 0.95 across the sweep)
+         and the topology angle is killed."
+  predictors:
+    primary: h0_total_persistence  # peak value, peak step
+    primary_alt: h0_total_persistence_at_step_40k
+    baseline: weight_norm_l2_at_step_40k
+  outcome: grokking_onset_step  # delay relative to memorization
+  decision_threshold:
+    # Topology wins if it explains residual variance after controlling for weight norm.
+    # Specifically: partial Spearman correlation of h0_tp on onset, given weight_norm_l2.
+    partial_rho_min: 0.30
+    bootstrap_ci_excludes_zero: true

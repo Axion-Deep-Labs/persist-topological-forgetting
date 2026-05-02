@@ -115,12 +115,10 @@ def compute_persistent_homology(loss_grid, maxdim=1):
 def extract_stats(diagrams):
     """Extract topology statistics from persistence diagrams.
 
-    Returns dict with primary, secondary, and exploratory stats.
-
-    Note on H0 feature count: on a grid graph with n vertices, the number of
-    finite H0 bars is always n-1 (structurally constant). We therefore add
-    h0_significant_count (features with persistence > median) as a meaningful
-    alternative that captures landscape complexity.
+    h{dim}_effective_feature_count uses the inverse participation ratio
+    (sum lifetimes)^2 / sum(lifetimes^2). Uniform persistences -> n; single
+    dominant persistence -> 1. Replaces an earlier h0_significant_count that
+    was structurally pinned near n/2 on grid filtrations.
     """
     stats = {}
     for dim, dgm in enumerate(diagrams):
@@ -132,15 +130,13 @@ def extract_stats(diagrams):
         stats[f"{prefix}_total_persistence"] = float(np.sum(lifetimes))
         stats[f"{prefix}_max_persistence"] = float(np.max(lifetimes)) if len(lifetimes) > 0 else 0.0
 
-        # Significant feature count: persistence above median
-        # On grids, h0_feature_count is always n-1 (uninformative).
-        # h0_significant_count distinguishes many-small-barrier vs few-large-barrier landscapes.
         if len(lifetimes) > 0:
-            median_pers = float(np.median(lifetimes))
-            stats[f"{prefix}_significant_count"] = int(np.sum(lifetimes > median_pers))
-            stats[f"{prefix}_median_persistence"] = median_pers
+            total = float(np.sum(lifetimes))
+            sq = float(np.sum(lifetimes ** 2))
+            stats[f"{prefix}_effective_feature_count"] = (total * total) / sq if sq > 0 else 0.0
+            stats[f"{prefix}_median_persistence"] = float(np.median(lifetimes))
         else:
-            stats[f"{prefix}_significant_count"] = 0
+            stats[f"{prefix}_effective_feature_count"] = 0.0
             stats[f"{prefix}_median_persistence"] = 0.0
 
         # Persistence entropy

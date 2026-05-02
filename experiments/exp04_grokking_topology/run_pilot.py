@@ -123,7 +123,7 @@ def run_analysis_pass(cfg, seed, output_dir, device):
             }
             topology_results.append(topo_entry)
             print(f"    H0 pers={topo['averaged']['h0_total_persistence']:.1f} "
-                  f"H0 sig_count={topo['averaged']['h0_significant_count']:.0f} "
+                  f"H0 eff_count={topo['averaged']['h0_effective_feature_count']:.2f} "
                   f"H0 ent={topo['averaged']['h0_persistence_entropy']:.4f} "
                   f"({topo_time:.1f}s)")
             del topo
@@ -171,16 +171,22 @@ def main():
                         help="Skip analysis, only run training")
     parser.add_argument("--seed", type=int, default=None,
                         help="Run a single seed (for HPC parallel jobs)")
+    parser.add_argument("--weight-decay", type=float, default=None,
+                        help="Override config weight_decay (for WD sweep in full study)")
+    parser.add_argument("--output-dir", type=str, default=None,
+                        help="Override default results/exp04_pilot output (e.g. results/exp04_full/wd_0.10)")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
+    if args.weight_decay is not None:
+        cfg["training"]["weight_decay"] = float(args.weight_decay)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     seeds = [args.seed] if args.seed is not None else cfg["seeds"]
-    output_dir = os.path.join("results", "exp04_pilot")
+    output_dir = args.output_dir if args.output_dir else os.path.join("results", "exp04_pilot")
     os.makedirs(output_dir, exist_ok=True)
 
     print("=" * 60)
-    print("EXP-04: Topological Dynamics of Grokking — PILOT")
+    print("EXP-04: Topological Dynamics of Grokking")
     print("=" * 60)
     print(f"  Device: {device}")
     print(f"  Seeds: {seeds}")
