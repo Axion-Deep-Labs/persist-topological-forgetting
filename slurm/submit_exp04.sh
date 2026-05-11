@@ -1,24 +1,24 @@
 #!/bin/bash
-# Build a manifest of pending (seed, wd) pairs and submit them as a single
-# SLURM array job. Replaces submit_exp04_full.sh, which used an external
-# dripper loop that died when login-node sessions ended.
+# Build a manifest of pending EXP-04 (seed, wd) pairs and sbatch the dripper.
 #
-# Behavior:
-#   - Reads seeds and weight_decay_sweep from configs/exp04_full.yaml
-#   - Skips (seed, wd) pairs that already have a complete topology_metrics.json
-#   - Writes pending pairs to slurm/manifests/exp04_<timestamp>.txt
-#   - Submits sbatch --array=0-(N-1)%18 slurm/run_exp04_array.sh <manifest>
-#   - SLURM handles the concurrent cap; no external process to die
+# This replaces the old submit_exp04_full.sh (which ran on the login node and
+# died) and submit_exp04_array.sh (incompatible with QOSMaxSubmitJobPerUserLimit).
+#
+# Flow:
+#   1. Read seeds + weight_decay_sweep from configs/exp04_full.yaml
+#   2. Skip pairs whose topology_metrics.json already has >= 81 records
+#   3. Write pending pairs to slurm/manifests/exp04_<timestamp>.txt
+#   4. sbatch slurm/drip_exp04.sh <manifest>  — runs the dripper as a SLURM job
+#
+# The dripper is itself a queued job. It uses 1 of the ~20 submit slots,
+# leaving 17 for the actual A100 work jobs, all running in parallel up to
+# the concurrent cap.
 #
 # Usage:
-#   bash slurm/submit_exp04_array.sh
-#
-# Overrides:
-#   CONCURRENT=12 bash slurm/submit_exp04_array.sh   # cap concurrent at 12
+#   bash slurm/submit_exp04.sh
 
 set -euo pipefail
 
-CONCURRENT=${CONCURRENT:-18}
 CONFIG=${CONFIG:-configs/exp04_full.yaml}
 
 mkdir -p slurm/manifests slurm/logs
@@ -26,7 +26,6 @@ mkdir -p slurm/manifests slurm/logs
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 MANIFEST="slurm/manifests/exp04_${TIMESTAMP}.txt"
 
-# Pull seeds + WDs from the config
 SEEDS=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG')); print(' '.join(str(s) for s in c['seeds']))")
 WDS=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG')); print(' '.join(str(w) for w in c['weight_decay_sweep']))")
 
@@ -64,10 +63,11 @@ if [[ "$pending" -eq 0 ]]; then
     exit 0
 fi
 
-ARRAY_SPEC="0-$((pending - 1))%${CONCURRENT}"
-echo "Submitting array: sbatch --array=${ARRAY_SPEC} slurm/run_exp04_array.sh $MANIFEST"
-
-JOB=$(sbatch --parsable --array="$ARRAY_SPEC" slurm/run_exp04_array.sh "$MANIFEST")
-echo "Submitted array job: $JOB"
-echo "Monitor:  squeue -u \$USER -j $JOB"
-echo "Logs:     slurm/logs/${JOB}_*_g4arr.{out,err}"
+echo ""
+echo "Submitting dripper: sbatch slurm/drip_exp04.sh $MANIFEST"
+JOB=$(sbatch --parsable slurm/drip_exp04.sh "$MANIFEST")
+echo "Dripper job: $JOB"
+echo ""
+echo "Monitor dripper:  tail -f slurm/logs/${JOB}_drip.out"
+echo "Monitor queue:    squeue -u \$USER"
+echo "Cancel dripper:   scancel $JOB   (does NOT cancel already-submitted work jobs)"
