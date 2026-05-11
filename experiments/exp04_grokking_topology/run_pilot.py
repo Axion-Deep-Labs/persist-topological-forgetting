@@ -218,12 +218,13 @@ def main():
     print(f"  Results in: {output_dir}")
     print(f"{'=' * 60}")
 
-    # Summary: check pilot gate
-    print(f"\n  PILOT GATE CHECK:")
-    print(f"  Criterion: at least one PH stat shows consistent directional")
-    print(f"  behavior across >= {cfg['pilot_gate']['min_consistent_seeds']}/{len(seeds)} seeds")
-    print(f"  before grokking onset.")
-    print(f"\n  Review results manually before proceeding to full study.")
+    # Summary: pilot-only gate text (full-study configs omit pilot_gate intentionally)
+    if "pilot_gate" in cfg:
+        print(f"\n  PILOT GATE CHECK:")
+        print(f"  Criterion: at least one PH stat shows consistent directional")
+        print(f"  behavior across >= {cfg['pilot_gate']['min_consistent_seeds']}/{len(seeds)} seeds")
+        print(f"  before grokking onset.")
+        print(f"\n  Review results manually before proceeding to full study.")
 
 
 if __name__ == "__main__":
