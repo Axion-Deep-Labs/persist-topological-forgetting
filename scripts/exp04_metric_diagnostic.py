@@ -1,40 +1,49 @@
-"""EXP-04 metric verification diagnostic.
+"""EXP-04 metric verification diagnostic (multi-step).
 
-Compares full-softmax vs restricted-softmax retention at step 10 across all
-architectures of all six cross-dataset pairs, to determine whether the two
-metrics diverge materially in actual training trajectories (vs being equal
-only at step 0 as the Phase 3b sanity check shows).
+Compares full-softmax vs restricted-softmax retention across multiple
+evaluation steps and all six cross-dataset pairs, to characterize whether
+and where the two metrics diverge in actual training trajectories.
 
-Three-tier decision gate:
+Reads from the restricted-softmax re-evaluation file, which contains BOTH
+metrics in each curve entry:
+    task_a_acc_full          - re-computed full-softmax (matches original
+                               forgetting_curve.json, verified by
+                               full_vs_recomputed_diff = 0)
+    task_a_acc_restricted    - argmax over [0, K_A) logits only,
+                               isolates backbone drift
+
+Steps evaluated: 10, 100, 500, 1000
+  step 10  = paper's primary retention metric (ret@10). The headline
+             "does the existing Phase 4/8 analysis hold under restricted
+             softmax?" question pivots on this step.
+  later   = characterize divergence onset and magnitude. Empirically
+            grounds the paper's claim that restricted-softmax isolates
+            backbone drift while full-softmax conflates it with
+            classifier-head re-routing.
+
+Three-tier verdict, applied per step and globally (using step 10 as
+paper's primary):
 
   ALIGNED
     rankings preserved AND magnitudes preserved (max diff < 0.02 AND
     pooled rho > 0.95 AND no per-pair rho below 0.90)
-    Paper implication: metric distinction stays secondary; main story
-    is the pooled conditional topology signal.
 
   MOSTLY_ALIGNED_GEOMETRY_DEPENDENT
     rankings largely preserved (pooled rho > 0.85), but magnitudes
     diverge systematically; either some per-pair rho < 0.90 or the
-    range across per-pair rhos exceeds 0.10.
-    Paper implication: full vs restricted distinction becomes part of
-    the conceptual contribution; classifier-rerouting vs backbone-drift
-    framing becomes central; heterogeneity is part of the finding.
+    range across per-pair rhos exceeds 0.10
 
   MISALIGNED
     rankings unstable (pooled rho <= 0.85), or pooled magnitudes diverge
-    severely.
-    Paper implication: claims narrow substantially; topology signal is
-    metric-contingent rather than robust.
-
-Designed to run on HPC where the per-run forgetting_curve_restricted.json
-files exist. The aggregate Phase 3b summary alone does not contain
-step-by-step trajectory data, only step-0 sanity checks.
+    severely
 
 Outputs (written under results/exp04_metric_diagnostic/):
-  per_arch.json   - flat list of (pair, arch, full_ret_10, rest_ret_10, diff)
-  per_pair.json   - per-pair n, max_diff, mean_diff, spearman_rho, verdict_local
-  aggregate.json  - pooled stats, geometry-dependence diagnostics, global verdict
+  per_arch.json   - per (pair, arch) row with full/restricted/diff at
+                    each step
+  per_pair.json   - per-pair per-step n, max_diff, mean_diff, rho,
+                    verdict_local
+  aggregate.json  - pooled per-step stats, divergence profile across
+                    steps, global verdict on paper's primary metric
 
 Usage (on HPC):
     cd /fs1/scratch/cag1145/axiondeep-research
@@ -58,14 +67,23 @@ ALL_PAIRS = [
     "resisc45_to_cub200",
 ]
 
+EVAL_STEPS = [10, 100, 500, 1000]
+PRIMARY_STEP = 10  # paper's primary retention metric
 
-def ret_at_step(curve_data: dict, step: int) -> float | None:
+
+def ret_at_step_from_restricted_file(curve_data: dict, step: int,
+                                     metric_key: str) -> float | None:
+    """Compute ret@step using either 'task_a_acc_full' or
+    'task_a_acc_restricted' from the restricted-softmax curve file."""
     initial = curve_data.get("initial_task_a_acc")
     if not initial:
         return None
     for pt in curve_data.get("curve", []):
         if pt.get("step") == step:
-            return pt.get("task_a_acc", 0) / initial
+            val = pt.get(metric_key)
+            if val is None:
+                return None
+            return val / initial
     return None
 
 
@@ -95,24 +113,46 @@ def spearman(x: list[float], y: list[float]) -> float | None:
     return num / den if den else None
 
 
-def collect_pair(pair: str) -> list[tuple[str, float, float, float]]:
+def collect_pair(pair: str) -> tuple[list[dict], dict]:
+    """Return (per-arch records for this pair, discovery diagnostics)."""
     task_a, task_b = pair.split("_to_")
     pair_dirs = sorted(glob.glob(f"results/exp01_*_{task_a}_xd_{task_b}"))
-    rows: list[tuple[str, float, float, float]] = []
+    rows: list[dict] = []
+    n_total = len(pair_dirs)
+    n_no_restricted = 0
+    n_no_steps = 0
     for d in pair_dirs:
         arch = Path(d).name.replace("exp01_", "").replace(f"_{task_a}_xd_{task_b}", "")
-        full_path = Path(d) / "forgetting" / "forgetting_curve.json"
         rest_path = Path(d) / "forgetting" / "forgetting_curve_restricted.json"
-        if not full_path.exists() or not rest_path.exists():
+        if not rest_path.exists():
+            n_no_restricted += 1
             continue
-        full = json.load(open(full_path))
-        rest = json.load(open(rest_path))
-        full_r10 = ret_at_step(full, 10)
-        rest_r10 = ret_at_step(rest, 10)
-        if full_r10 is None or rest_r10 is None:
+        rest_data = json.load(open(rest_path))
+        row = {"pair": pair, "arch": arch}
+        had_any_step = False
+        for step in EVAL_STEPS:
+            full_v = ret_at_step_from_restricted_file(rest_data, step, "task_a_acc_full")
+            rest_v = ret_at_step_from_restricted_file(rest_data, step, "task_a_acc_restricted")
+            if full_v is None or rest_v is None:
+                row[f"full_ret_{step}"] = None
+                row[f"rest_ret_{step}"] = None
+                row[f"abs_diff_{step}"] = None
+                continue
+            had_any_step = True
+            row[f"full_ret_{step}"] = full_v
+            row[f"rest_ret_{step}"] = rest_v
+            row[f"abs_diff_{step}"] = abs(full_v - rest_v)
+        if not had_any_step:
+            n_no_steps += 1
             continue
-        rows.append((arch, full_r10, rest_r10, abs(full_r10 - rest_r10)))
-    return rows
+        rows.append(row)
+    discovery = {
+        "dirs_found": n_total,
+        "dirs_missing_restricted_json": n_no_restricted,
+        "dirs_with_restricted_but_no_steps": n_no_steps,
+        "dirs_usable": len(rows),
+    }
+    return rows, discovery
 
 
 def per_pair_verdict(max_diff: float, rho: float) -> str:
@@ -146,126 +186,167 @@ def global_verdict(pooled_rho: float, pooled_max_diff: float,
     return verdict, diagnostics
 
 
+def pair_step_stats(rows: list[dict], step: int) -> dict | None:
+    full_vals = [r[f"full_ret_{step}"] for r in rows if r.get(f"full_ret_{step}") is not None]
+    rest_vals = [r[f"rest_ret_{step}"] for r in rows if r.get(f"rest_ret_{step}") is not None]
+    diffs = [r[f"abs_diff_{step}"] for r in rows if r.get(f"abs_diff_{step}") is not None]
+    if not diffs or len(full_vals) != len(rest_vals) or len(full_vals) < 3:
+        return None
+    rho = spearman(full_vals, rest_vals)
+    if rho is None:
+        rho = 0.0
+    max_diff = max(diffs)
+    mean_diff = sum(diffs) / len(diffs)
+    return {
+        "n": len(diffs),
+        "max_abs_diff": max_diff,
+        "mean_abs_diff": mean_diff,
+        "spearman_rho": rho,
+        "verdict_local": per_pair_verdict(max_diff, rho),
+    }
+
+
 def main() -> int:
     # Single-pair legacy mode (stdout only, no JSON)
     if len(sys.argv) > 1 and sys.argv[1] in ALL_PAIRS:
         pair = sys.argv[1]
-        rows = collect_pair(pair)
-        rows.sort(key=lambda r: r[3], reverse=True)
+        rows, disc = collect_pair(pair)
         print(f"Pair: {pair}")
-        print(f"N: {len(rows)}\n")
-        print(f"{'arch':<28} {'full_ret_10':>11} {'rest_ret_10':>11} {'|diff|':>8}")
-        print("-" * 62)
-        for arch, full, rest, diff in rows:
-            print(f"{arch:<28} {full:>11.4f} {rest:>11.4f} {diff:>8.4f}")
-        if not rows:
-            return 1
-        diffs = [r[3] for r in rows]
-        rho = spearman([r[1] for r in rows], [r[2] for r in rows]) or 0.0
-        v = per_pair_verdict(max(diffs), rho)
-        print(f"\nMax |diff|: {max(diffs):.4f}  Mean |diff|: {sum(diffs)/len(diffs):.4f}  rho: {rho:.4f}")
-        print(f"Per-pair verdict: {v}")
+        print(f"Discovery: {disc}")
+        print()
+        for step in EVAL_STEPS:
+            s = pair_step_stats(rows, step)
+            if s is None:
+                print(f"  step {step}: insufficient data")
+                continue
+            print(f"  step {step:>5}: n={s['n']:>2}  rho={s['spearman_rho']:>+.4f}  "
+                  f"max_diff={s['max_abs_diff']:.4f}  mean_diff={s['mean_abs_diff']:.4f}  "
+                  f"verdict={s['verdict_local']}")
         return 0
 
     # Default: sweep all 6 pairs and write JSON outputs.
     out_dir = Path("results/exp04_metric_diagnostic")
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    per_arch_records: list[dict] = []
+    all_records: list[dict] = []
     per_pair_summary: dict[str, dict] = {}
-    per_pair_rhos_for_global: list[float] = []
-    pooled_full: list[float] = []
-    pooled_rest: list[float] = []
-    pooled_diffs: list[float] = []
+    discovery_summary: dict[str, dict] = {}
 
     for pair in ALL_PAIRS:
-        rows = collect_pair(pair)
-        if not rows:
-            per_pair_summary[pair] = {"n": 0, "verdict_local": "NO_DATA"}
-            continue
-        full_vals = [r[1] for r in rows]
-        rest_vals = [r[2] for r in rows]
-        diffs = [r[3] for r in rows]
-        rho = spearman(full_vals, rest_vals) or 0.0
-        max_diff = max(diffs)
-        mean_diff = sum(diffs) / len(diffs)
-        verdict_local = per_pair_verdict(max_diff, rho)
+        rows, disc = collect_pair(pair)
+        discovery_summary[pair] = disc
         per_pair_summary[pair] = {
-            "n": len(rows),
-            "max_abs_diff": max_diff,
-            "mean_abs_diff": mean_diff,
-            "spearman_rho": rho,
-            "verdict_local": verdict_local,
+            "n_archs_with_any_step": len(rows),
+            "by_step": {},
         }
-        per_pair_rhos_for_global.append(rho)
-        pooled_full.extend(full_vals)
-        pooled_rest.extend(rest_vals)
-        pooled_diffs.extend(diffs)
-        for arch, full, rest, diff in rows:
-            per_arch_records.append({
-                "pair": pair,
-                "arch": arch,
-                "full_ret_10": full,
-                "rest_ret_10": rest,
-                "abs_diff": diff,
-            })
+        for step in EVAL_STEPS:
+            s = pair_step_stats(rows, step)
+            per_pair_summary[pair]["by_step"][str(step)] = s
+        all_records.extend(rows)
 
-    pooled_rho = spearman(pooled_full, pooled_rest) or 0.0
-    pooled_max_diff = max(pooled_diffs) if pooled_diffs else 0.0
-    pooled_mean_diff = sum(pooled_diffs) / len(pooled_diffs) if pooled_diffs else 0.0
-    verdict_global, geometry_diagnostics = global_verdict(
-        pooled_rho, pooled_max_diff, per_pair_rhos_for_global
-    )
+    # Aggregate per-step pooled stats
+    aggregate_by_step: dict[str, dict] = {}
+    for step in EVAL_STEPS:
+        pooled_full: list[float] = []
+        pooled_rest: list[float] = []
+        pooled_diffs: list[float] = []
+        per_pair_rhos: list[float] = []
+        for pair in ALL_PAIRS:
+            s = per_pair_summary[pair]["by_step"].get(str(step))
+            if s is None:
+                continue
+            per_pair_rhos.append(s["spearman_rho"])
+            for r in all_records:
+                if r["pair"] != pair:
+                    continue
+                full_v = r.get(f"full_ret_{step}")
+                rest_v = r.get(f"rest_ret_{step}")
+                if full_v is None or rest_v is None:
+                    continue
+                pooled_full.append(full_v)
+                pooled_rest.append(rest_v)
+                pooled_diffs.append(r[f"abs_diff_{step}"])
+        if not pooled_diffs:
+            aggregate_by_step[str(step)] = None
+            continue
+        pooled_rho = spearman(pooled_full, pooled_rest) or 0.0
+        pooled_max_diff = max(pooled_diffs)
+        pooled_mean_diff = sum(pooled_diffs) / len(pooled_diffs)
+        verdict_step, geometry = global_verdict(pooled_rho, pooled_max_diff, per_pair_rhos)
+        aggregate_by_step[str(step)] = {
+            "n_trajectories": len(pooled_diffs),
+            "pooled_max_abs_diff": pooled_max_diff,
+            "pooled_mean_abs_diff": pooled_mean_diff,
+            "pooled_spearman_rho": pooled_rho,
+            "geometry_dependence": geometry,
+            "verdict_step": verdict_step,
+        }
+
+    primary = aggregate_by_step.get(str(PRIMARY_STEP))
+    verdict_global = primary["verdict_step"] if primary else "NO_DATA"
+
+    # Divergence profile: at which step does max_diff first exceed thresholds?
+    divergence_profile = {}
+    for thresh in (0.02, 0.05, 0.10, 0.20):
+        onset_step = None
+        for step in EVAL_STEPS:
+            s = aggregate_by_step.get(str(step))
+            if s and s["pooled_max_abs_diff"] >= thresh:
+                onset_step = step
+                break
+        divergence_profile[f"first_step_max_diff_geq_{thresh}"] = onset_step
 
     now = _dt.datetime.now(_dt.timezone.utc).isoformat()
 
     (out_dir / "per_arch.json").write_text(json.dumps({
         "generated_at": now,
-        "data": per_arch_records,
+        "eval_steps": EVAL_STEPS,
+        "data": all_records,
     }, indent=2))
     (out_dir / "per_pair.json").write_text(json.dumps({
         "generated_at": now,
+        "eval_steps": EVAL_STEPS,
         "data": per_pair_summary,
+        "discovery": discovery_summary,
     }, indent=2))
     (out_dir / "aggregate.json").write_text(json.dumps({
         "generated_at": now,
-        "n_pairs_with_data": sum(1 for v in per_pair_summary.values() if v["n"] > 0),
-        "n_total_trajectories": len(per_arch_records),
-        "pooled_max_abs_diff": pooled_max_diff,
-        "pooled_mean_abs_diff": pooled_mean_diff,
-        "pooled_spearman_rho": pooled_rho,
-        "geometry_dependence": geometry_diagnostics,
+        "eval_steps": EVAL_STEPS,
+        "primary_step": PRIMARY_STEP,
+        "by_step": aggregate_by_step,
+        "divergence_profile": divergence_profile,
         "verdict_global": verdict_global,
     }, indent=2))
 
     # Console summary
-    print("=" * 78)
-    print(f"EXP-04 metric diagnostic - {now}")
-    print("=" * 78)
-    print(f"Pairs swept:    {len(ALL_PAIRS)}")
-    print(f"Trajectories:   {len(per_arch_records)}")
+    print("=" * 88)
+    print(f"EXP-04 multi-step metric diagnostic - {now}")
+    print("=" * 88)
+    print("Discovery (per pair):")
+    for pair, disc in discovery_summary.items():
+        print(f"  {pair:<24} dirs={disc['dirs_found']:>2}  "
+              f"missing_restricted={disc['dirs_missing_restricted_json']:>2}  "
+              f"usable={disc['dirs_usable']:>2}")
     print()
-    print(f"{'pair':<28} {'n':>4} {'rho':>8} {'max_diff':>10} {'mean_diff':>11} {'verdict_local':>30}")
-    print("-" * 95)
-    for pair in ALL_PAIRS:
-        s = per_pair_summary[pair]
-        if s["n"] == 0:
-            print(f"{pair:<28} {0:>4}  (no data)")
+    print("Per-step pooled summary:")
+    print(f"{'step':>5}  {'n':>4}  {'rho':>+9}  {'max_diff':>9}  {'mean_diff':>10}  "
+          f"{'rho_range':>10}  verdict")
+    print("-" * 88)
+    for step in EVAL_STEPS:
+        s = aggregate_by_step.get(str(step))
+        if s is None:
+            print(f"{step:>5}  (no data)")
             continue
-        print(
-            f"{pair:<28} {s['n']:>4} {s['spearman_rho']:>8.4f} "
-            f"{s['max_abs_diff']:>10.4f} {s['mean_abs_diff']:>11.4f} "
-            f"{s['verdict_local']:>30}"
-        )
-    print("-" * 95)
-    print(f"POOLED                       {len(per_arch_records):>4} "
-          f"{pooled_rho:>8.4f} {pooled_max_diff:>10.4f} {pooled_mean_diff:>11.4f}")
+        print(f"{step:>5}  {s['n_trajectories']:>4}  {s['pooled_spearman_rho']:>+9.4f}  "
+              f"{s['pooled_max_abs_diff']:>9.4f}  {s['pooled_mean_abs_diff']:>10.4f}  "
+              f"{s['geometry_dependence']['per_pair_rho_range']:>10.4f}  "
+              f"{s['verdict_step']}")
     print()
-    print(f"Geometry-dependence diagnostics:")
-    for k, v in geometry_diagnostics.items():
+    print(f"Divergence profile (first step where pooled max_diff >= threshold):")
+    for k, v in divergence_profile.items():
         print(f"  {k}: {v}")
     print()
-    print(f"GLOBAL VERDICT: {verdict_global}")
+    print(f"PRIMARY METRIC (ret_{PRIMARY_STEP}) GLOBAL VERDICT: {verdict_global}")
     print()
     print(f"Wrote: {out_dir}/per_arch.json")
     print(f"Wrote: {out_dir}/per_pair.json")
