@@ -197,7 +197,7 @@ def section_effect_sizes(rows):
         ("weight_norm_l2      (@anchor)",  wna),
         ("sharpness           (@anchor)",  sha),
     ]
-    print(f"  {'predictor':<38} {'rho':>+9}  {'bootstrap 95% CI':>26}")
+    print(f"  {'predictor':<38} {'rho':>9}  {'bootstrap 95% CI':>26}")
     out = {}
     for name, vals in pairs:
         r = spearman(vals, onset)
