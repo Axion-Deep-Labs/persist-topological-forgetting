@@ -116,13 +116,28 @@ def spearman(x: list[float], y: list[float]) -> float | None:
 def collect_pair(pair: str) -> tuple[list[dict], dict]:
     """Return (per-arch records for this pair, discovery diagnostics)."""
     task_a, task_b = pair.split("_to_")
-    pair_dirs = sorted(glob.glob(f"results/exp01_*_{task_a}_xd_{task_b}"))
+    # Directory naming convention:
+    #   Task A = cifar100 (default):  exp01_<arch>_xd_<taskB>
+    #   Task A = cub200/resisc45:     exp01_<arch>_<taskA>_xd_<taskB>
+    if task_a == "cifar100":
+        # Exclude any dir that contains another task_a token (cub200/resisc45)
+        candidates = sorted(glob.glob(f"results/exp01_*_xd_{task_b}"))
+        pair_dirs = [
+            d for d in candidates
+            if "_cub200_xd_" not in d and "_resisc45_xd_" not in d
+        ]
+    else:
+        pair_dirs = sorted(glob.glob(f"results/exp01_*_{task_a}_xd_{task_b}"))
     rows: list[dict] = []
     n_total = len(pair_dirs)
     n_no_restricted = 0
     n_no_steps = 0
     for d in pair_dirs:
-        arch = Path(d).name.replace("exp01_", "").replace(f"_{task_a}_xd_{task_b}", "")
+        name = Path(d).name.replace("exp01_", "")
+        if task_a == "cifar100":
+            arch = name.replace(f"_xd_{task_b}", "")
+        else:
+            arch = name.replace(f"_{task_a}_xd_{task_b}", "")
         rest_path = Path(d) / "forgetting" / "forgetting_curve_restricted.json"
         if not rest_path.exists():
             n_no_restricted += 1
