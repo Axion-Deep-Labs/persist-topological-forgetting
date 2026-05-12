@@ -329,7 +329,7 @@ def main() -> int:
               f"usable={disc['dirs_usable']:>2}")
     print()
     print("Per-step pooled summary:")
-    print(f"{'step':>5}  {'n':>4}  {'rho':>+9}  {'max_diff':>9}  {'mean_diff':>10}  "
+    print(f"{'step':>5}  {'n':>4}  {'rho':>9}  {'max_diff':>9}  {'mean_diff':>10}  "
           f"{'rho_range':>10}  verdict")
     print("-" * 88)
     for step in EVAL_STEPS:
