@@ -236,7 +236,7 @@ This section reports our cross-dataset findings (Phase~I-B) on retention predict
 \subsection{Cross-Dataset Retention Prediction}
 \label{sec:results_q1}
 
-Across $n = 114$ cross-dataset trajectories (six ordered task pairs across three datasets, $\times$ 19 architectures), $H_0$ is a strong predictor of Task~A retention under naive sequential fine-tuning. We fit the pooled mixed-effects model
+Across $n = 114$ cross-dataset trajectories (six ordered task pairs across three datasets, $\times$ 19 architectures), $H_0$ contains a robust pooled predictive signal for Task~A retention under naive sequential fine-tuning whose manifestation depends on aggregation level. We fit the pooled mixed-effects model
 \begin{equation*}
 \text{ret}_{10} \sim H_0 z + H_1 z + \log(\text{params}) + (1 \mid \text{arch}),
 \end{equation*}
@@ -263,7 +263,7 @@ Arch (RE var) & $+1.358$ & 0.637 & 0.033 & $[+0.109, +2.607]$ \\
 
 The $H_0$ effect ($p = 0.0009$) is roughly an order of magnitude stronger than the next-strongest predictors. $H_1$ persistence ($p = 0.036$) and $\log(\text{params})$ ($p = 0.038$) appear as weaker but statistically significant secondary predictors. This suggests that multiple aspects of model geometry and capacity contribute to retention, with $H_0$ capturing the dominant effect at this scale. The architecture random-effect variance is also significant ($p = 0.033$), confirming that across-architecture variation in retention is real and non-negligible; the $H_0$ effect remains significant after this variation is absorbed.
 
-The fixed-effect coefficient on $H_0 z$ is the pooled effect across all six task pairs and all 19 architectures; it is not a per-pair claim. The WRN-28-$k$ width ladder (Section~\ref{sec:wrn}) provides supporting evidence that $H_0$ tracks a structurally meaningful property of the loss landscape rather than an artifact of any one architecture family.
+The fixed-effect coefficient on $H_0 z$ is a pooled effect across all six task pairs and all 19 architectures. Per-pair Spearman correlations on the same data are heterogeneous, varying in sign and magnitude across the six ordered task pairs; the within-trajectory z-scoring and architecture random intercept absorb that heterogeneity so that the pooled signal survives. We treat this aggregation-level heterogeneity as part of the finding rather than as noise around it: topology contains a pooled predictive signal for retention whose manifestation depends on dataset geometry, source-task regime, and the aggregation level at which the relationship is measured. The WRN-28-$k$ width ladder (Section~\ref{sec:wrn}) provides supporting evidence that $H_0$ tracks a structurally meaningful property of the loss landscape rather than an artifact of any one architecture family.
 
 \subsection{EWC Mitigation Benefit at Cross-Dataset Scale}
 \label{sec:ewc_benefit}
