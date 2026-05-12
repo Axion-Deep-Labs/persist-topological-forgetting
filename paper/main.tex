@@ -208,7 +208,7 @@ We also compute the area under the retention curve (AURC) via trapezoidal integr
 \end{equation}
 
 \paragraph{Full-softmax vs.\ restricted-softmax retention.}
-When Tasks A and B come from different datasets, retention computed via full-softmax over the expanded $K_A + K_B$ classifier head reflects two effects: backbone drift (loss of Task A representations) and classifier-head re-routing (Task A logits being eclipsed by inflated Task B logits even when the backbone still encodes Task A correctly). To isolate backbone drift, we additionally compute restricted-softmax retention by evaluating Task A inputs over only the original $K_A$ classifier outputs, holding the Task B head fixed. We use restricted-softmax retention as the primary metric for our cross-dataset analyses and report full-softmax retention alongside it for comparison.
+When Tasks A and B come from different datasets, retention computed via full-softmax over the expanded $K_A + K_B$ classifier head reflects two effects: backbone drift (loss of Task A representations) and classifier-head re-routing (Task A logits being eclipsed by inflated Task B logits even when the backbone still encodes Task A correctly). To isolate backbone drift, we additionally compute restricted-softmax retention by evaluating Task A inputs over only the original $K_A$ classifier outputs, holding the Task B head fixed. Our primary Phase 4 and Phase 8 analyses use full-softmax retention; restricted-softmax retention is computed on the same trajectories and reported as a metric verification in Section~\ref{sec:metric_verification}.
 
 \subsection{Statistical Analysis}
 \label{sec:stats}
@@ -231,7 +231,7 @@ The ImageNet-100 sweep is analyzed as a separate scale-validation step on $n = 8
 \section{Results}
 \label{sec:results}
 
-This section reports our cross-dataset findings (Phase~I-B) on retention prediction and EWC mitigation, the contrasting null result for EWC mitigation benefit at the same scale, and the scale-regime shift observed at production scale (Phase~I-A on ImageNet-100). Retention metrics throughout cross-dataset analyses are computed using restricted-softmax retention (Section~\ref{sec:method}); full-softmax retention is reported alongside it for comparison.
+This section reports our cross-dataset findings (Phase~I-B) on retention prediction and EWC mitigation, the contrasting null result for EWC mitigation benefit at the same scale, and the scale-regime shift observed at production scale (Phase~I-A on ImageNet-100). Retention metrics throughout the primary Phase 4 and Phase 8 analyses are computed using full-softmax retention; restricted-softmax retention is computed on the same trajectories as a metric verification (Section~\ref{sec:metric_verification}). The verification confirms that the choice between full and restricted softmax does not affect Phase 4 or Phase 8 conclusions at the paper's primary evaluation step (ret$_{10}$).
 
 \subsection{Cross-Dataset Retention Prediction}
 \label{sec:results_q1}
@@ -351,6 +351,35 @@ Cubical vs.\ Ripser $H_1$ & $+1.0$ & All 3 \\
 
 $H_0$ persistence monotonically decreases with network width ($\rho = -1.0$ vs.\ parameter count) on CIFAR-100, CUB-200, and RESISC-45. This is consistent with the intuition that wider networks have smoother loss landscapes with fewer disconnected basins. Cubical and Ripser $H_1$ values show perfect rank agreement ($\rho = 1.0$), confirming that the topological measurement is method-independent. With only six widths, perfect rank correlation is consistent with a structural relationship but can also occur by chance, and we treat the ladder as supporting evidence for the validity of the $H_0$ measurement rather than as a primary result.
 
+\subsection{Metric Verification: Full-Softmax vs.\ Restricted-Softmax Retention}
+\label{sec:metric_verification}
+
+Full-softmax retention conflates two effects in cross-dataset continual learning: backbone drift (loss of Task A representations) and classifier-head re-routing (Task A logits eclipsed by inflated Task B logits even when the backbone still encodes Task A correctly). Restricted-softmax retention isolates backbone drift (Section~\ref{sec:method}). To verify that the choice between these two metrics does not condition the Phase 4 and Phase 8 conclusions reported above, we computed both metrics on the same training trajectories and compared them across 108 of the 114 cross-dataset configurations (18 of 19 architectures, spanning the full 0.3M--36.5M parameter range, across all six ordered task pairs). The six omitted trajectories correspond to ResNet-18, whose training checkpoints were not retained for re-evaluation; the Phase 4 and Phase 8 analyses above use the original full-softmax retention measurements computed when those trajectories were on disk.
+
+At the paper's primary evaluation step (ret$_{10}$), the two metrics are operationally identical: Spearman rank correlation $\rho = 1.0000$ across all 108 verified trajectories, mean absolute difference $0.0001$, maximum absolute difference $0.012$. The choice between full and restricted softmax does not affect Phase 4 or Phase 8 conclusions at this step.
+
+\begin{table}[t]
+\centering
+\caption{Pooled full-vs-restricted softmax agreement across evaluation steps ($n = 108$ trajectories, 18 architectures $\times$ 6 ordered task pairs). The last column reports the range of per-pair Spearman $\rho$ values across the six task pairs.}
+\label{tab:metric_verification}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}rrrrr@{}}
+\toprule
+Step & $\rho$ & max diff & mean diff & per-pair $\rho$ range \\
+\midrule
+10   & $+1.0000$ & $0.012$ & $0.0001$ & $0.002$ \\
+100  & $+0.811$  & $0.377$ & $0.100$  & $0.703$ \\
+500  & $+0.660$  & $0.607$ & $0.174$  & $0.429$ \\
+1000 & $+0.631$  & $0.598$ & $0.182$  & $0.305$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+At later evaluation steps the two metrics diverge sharply (Table~\ref{tab:metric_verification}). Pooled max absolute difference crosses the $0.20$ threshold by step 100 and remains elevated through step 1000. The per-pair $\rho$ range reaches $0.703$ at step 100, indicating that the magnitude of divergence depends on which task pair is being measured.
+
+This pattern is consistent with the operational interpretation in Section~\ref{sec:method}. At very early steps, few Task B gradient updates have been applied, so the argmax over the full $K_A + K_B$ classifier head selects Task A classes at the same rate as the restricted-softmax argmax over $[0, K_A)$. As Task B training continues, Task B logits inflate and full-softmax begins to misclassify Task A inputs into Task B classes even when the backbone still encodes them correctly; restricted-softmax preserves backbone-drift signal that full-softmax loses. A full characterization of this temporal and geometric divergence is out of scope for the present paper, which uses the metric verification only to confirm that the headline ret$_{10}$ findings in Sections~\ref{sec:results_q1} and~\ref{sec:ewc_benefit} are insensitive to the choice between full and restricted softmax.
+
 % ════════════════════════════════════════
 \section{Discussion}
 \label{sec:discussion}
@@ -390,7 +419,7 @@ Future work should investigate whether basin structure causally mediates forgett
     \item \textbf{$H_0$ and capacity.} $H_0$ is strongly tied to model capacity via the WRN width ladder ($\rho = -1.0$). Per-dataset controlled regressions show that $H_0$ retains significant predictive power on RESISC-45 ($p < 0.001$) after controlling for $\log(\text{params})$, with $H_0$ explaining more variance than parameter count on that dataset. The confound is partially but not fully resolved at small per-dataset sample sizes.
     \item \textbf{WRN perfect monotonicity.} $\rho = -1.0$ across all three datasets with only six widths ($k = 1, 2, 4, 6, 8, 10$) is consistent with a structural relationship but can also occur by chance.
     \item \textbf{No causal mechanism.} \emph{This study does not establish a causal mechanism linking topology to forgetting.} The relationships reported are correlational, computed from passive observation of trained networks. No experiment intervenes on landscape geometry to test whether $H_0$ changes drive retention changes correspondingly. The basin fragmentation account in Section~\ref{sec:hypothesis} is offered as a candidate hypothesis to guide future work, not as a claim supported by the present data.
-    \item \textbf{Restricted-softmax retention is novel and load-bearing.} Our use of restricted-softmax retention as the primary cross-dataset metric is not yet validated against an established cross-dataset retention literature, and the choice of metric materially conditions how the results are interpreted. We treat the full-softmax versus restricted-softmax distinction as part of the conceptual contribution: full-softmax retention reflects both backbone drift and classifier-head re-routing, while restricted-softmax isolates backbone drift alone. Future work should formalize this distinction and compare both with alternative metrics designed for cross-domain continual learning.
+    \item \textbf{Restricted-softmax retention is novel and load-bearing.} The full-softmax versus restricted-softmax distinction developed in Section~\ref{sec:method} and verified empirically in Section~\ref{sec:metric_verification} is not yet validated against an established cross-dataset retention literature. The verification confirms operational identity at ret$_{10}$ ($\rho = 1.0000$, $n = 108$) but documents substantial divergence at later evaluation steps ($\rho = 0.63$ at step 1000). We treat the distinction as part of the conceptual contribution: full-softmax retention reflects both backbone drift and classifier-head re-routing, while restricted-softmax isolates backbone drift alone. The temporal and geometric structure of the divergence (Section~\ref{sec:metric_verification}) implies phase-dependent forgetting dynamics that future work should characterize formally and compare against alternative metrics designed for cross-domain continual learning.
 \end{enumerate}
 
 \paragraph{Falsification targets.} Results that would undermine the empirical claims of this paper:
