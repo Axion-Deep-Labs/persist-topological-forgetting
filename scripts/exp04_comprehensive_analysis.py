@@ -326,6 +326,9 @@ def section_late_grokker(rows, threshold):
                 [wna[i] for i in idxs],
                 [cdp[i] for i in idxs])
 
+    def fmt(v):
+        return f"{v:+.4f}" if v is not None else "  (N/A)"
+
     def block(label, idxs):
         if len(idxs) < 4:
             print(f"  {label}: n={len(idxs)} too small for partial correlation")
@@ -336,10 +339,12 @@ def section_late_grokker(rows, threshold):
         m_cd = spearman(c, o)
         p_cd_wn = partial_spearman(c, o, w)
         print(f"  {label}: n={len(idxs)}")
-        print(f"    marginal h0_peak  vs onset:    {m_h0:+.4f}")
-        print(f"    marginal commut.  vs onset:    {m_cd:+.4f}")
-        print(f"    partial  h0_peak  | wn@anchor: {p_h0_wn:+.4f}")
-        print(f"    partial  commut.  | wn@anchor: {p_cd_wn:+.4f}")
+        print(f"    marginal h0_peak  vs onset:    {fmt(m_h0)}")
+        print(f"    marginal commut.  vs onset:    {fmt(m_cd)}")
+        print(f"    partial  h0_peak  | wn@anchor: {fmt(p_h0_wn)}"
+              + ("  (degenerate: wn covariate has near-zero variance in this subset)"
+                 if p_h0_wn is None else ""))
+        print(f"    partial  commut.  | wn@anchor: {fmt(p_cd_wn)}")
         return {"n": len(idxs), "h0_marginal": m_h0, "cd_marginal": m_cd,
                 "h0_partial_wn": p_h0_wn, "cd_partial_wn": p_cd_wn}
 
