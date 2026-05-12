@@ -18,7 +18,7 @@
 
 \bibliographystyle{plainnat}
 
-\title{Loss Landscape Topology Predicts Mitigation Benefit\\in Continual Learning: A Cross-Dataset Moderation Analysis}
+\title{When Does Loss Landscape Topology Predict Forgetting?\\A Cross-Dataset Study}
 
 \author{
   Joshua~Gutierrez\thanks{Corresponding author. \texttt{joshua@axiondeep.com}} \\
@@ -32,7 +32,7 @@
   \texttt{cag1145@nmsu.edu}
 }
 
-\date{March 2026}
+\date{May 2026}
 
 \begin{document}
 
@@ -40,33 +40,37 @@
 
 % ════════════════════════════════════════
 \begin{abstract}
-We investigate whether topological features of neural network loss landscapes predict resistance to catastrophic forgetting across 19 architectures and 3 datasets (CIFAR-100, CUB-200-2011, NWPU-RESISC45; 57 total configurations). Using persistent homology on 2D cross-sections of loss landscapes (5 independent slices per architecture), we compute $H_0$ (connected components) and $H_1$ (loops) persistence via Ripser and GUDHI cubical complexes. Per-dataset leave-one-architecture-out (LOAO) Ridge regression with permutation testing shows topology's predictive value for forgetting is conditional on dataset: topology rescues forgetting prediction on CUB-200 (permutation $p = 0.037$, suggestive but not surviving Bonferroni correction) but not RESISC-45 ($p = 0.566$) or CIFAR-100 ($p = 0.295$, where parameter count dominates). A WRN-28-$k$ width ladder ($k = 1, 2, 4, 6, 8, 10$) shows $H_0$ monotonically decreases with width ($\rho = -1.0$) across all 3 datasets, confirmed by cubical persistence ($\rho = 1.0$ agreement with Ripser), validating $H_0$ as a structurally meaningful landscape summary. In exploratory post-hoc analysis, we additionally observe that $H_0$ correlates with EWC mitigation benefit on CIFAR-100 ($\rho = 0.76$, $p = 0.0002$) and RESISC-45 ($\rho = 0.86$, $p = 2.4 \times 10^{-6}$) but not CUB-200 ($\rho = 0.31$, $p = 0.19$). Controlled regression confirms $H_0$ is not a proxy for model size: on RESISC-45, $H_0$ remains the dominant predictor after controlling for parameter count ($p < 0.001$, $R^2 = 0.764$ jointly vs.\ $0.242$ for params alone). A pooled interaction model suggests dataset-dependent moderation (permutation $p = 0.046$), though this result is post-hoc, does not survive strict multiple-comparison correction, and requires confirmatory replication. We propose the basin fragmentation hypothesis as a candidate mechanism linking landscape topology to regularization sensitivity.
+We test whether loss landscape topology contains predictive signal for catastrophic forgetting in cross-dataset continual learning. Across 19 image classification architectures (0.3M to 44.7M parameters) and three datasets (CIFAR-100, CUB-200-2011, NWPU-RESISC45), we evaluate six ordered task pairs and measure both retention under naive sequential fine tuning and the marginal benefit of elastic weight consolidation (EWC). A pooled mixed-effects analysis on 114 cross-dataset trajectories shows that the zeroth-order persistent homology feature count, $H_0$, carries a robust pooled predictive signal for Task A retention ($p < 0.001$), with the relationship surviving the inclusion of architecture and capacity covariates; per-pair Spearman correlations on the same data are heterogeneous, so the signal manifests as a pooled-aggregation effect rather than as a uniform per-pair relationship. The same predictors do not remain significant for EWC mitigation benefit under cross-dataset pooling, despite within-dataset $H_0$-EWC correlations observed in prior work; we report this as a boundary condition on the topology-mitigation relationship, not a failure of the broader phenomenon. At larger scale (ImageNet-100), eight production-scale architectures show an observational regime shift in which $H_1$ features dominate the topology signal (Spearman $\rho = 0.93$, $p = 0.0007$), reversing the $H_0$-dominance seen at smaller scales. Together, these results map when and how loss landscape topology contains predictive signal for continual learning: its utility is conditional on dataset regime, scale, and aggregation level.
 \end{abstract}
 
 % ════════════════════════════════════════
 \section{Introduction}
 \label{sec:intro}
 
-Catastrophic forgetting, the abrupt loss of previously learned knowledge when a neural network is trained on new data, remains a central obstacle in continual learning \citep{mccloskey1989catastrophic, french1999catastrophic}. Despite decades of mitigation strategies including elastic weight consolidation \citep[EWC;][]{kirkpatrick2017overcoming}, synaptic intelligence \citep{zenke2017continual}, progressive neural networks \citep{rusu2016progressive}, and replay-based methods \citep{rebuffi2017icarl}, a fundamental question persists: can we predict, before sequential training begins, how resistant a given architecture will be to catastrophic forgetting, and how much a given mitigation method will help?
+Catastrophic forgetting remains a central challenge in continual learning \citep{mccloskey1989catastrophic, french1999catastrophic}, particularly when models are updated across heterogeneous datasets. While a large body of work has proposed mitigation strategies such as elastic weight consolidation \citep[EWC;][]{kirkpatrick2017overcoming}, replay methods \citep{rebuffi2017icarl, shin2017continual}, and parameter isolation \citep{rusu2016progressive, mallya2018packnet}, a fundamental question remains open: can we predict, before retraining, which models will forget and which mitigation strategies will be effective?
 
-Recent work has established that the geometry of loss landscapes encodes meaningful information about generalization \citep{li2018visualizing, keskar2017on} and mode connectivity \citep{garipov2018loss}. Separately, topological data analysis (TDA), particularly persistent homology, has emerged as a principled framework for characterizing multi-scale structure in high-dimensional data \citep{carlsson2009topology}. We bridge these two lines of work by asking: \textbf{do topological features of the loss landscape predict forgetting resistance and, critically, mitigation benefit?}
+Recent work has suggested that properties of the loss landscape may provide such predictive signals \citep{li2018visualizing, keskar2017on, garipov2018loss}. In particular, topological summaries derived from persistent homology \citep{carlsson2009topology} offer a way to characterize the structure of basins around trained solutions. Early empirical results indicate that these features can correlate with forgetting behavior and mitigation effectiveness within individual datasets. However, it is unclear whether these relationships generalize across datasets, architectures, and scales.
 
-Our contributions are:
-\begin{enumerate}
-    \item A cross-architecture, cross-dataset study (19 architectures, 3 datasets, 57 configurations) with a 7-phase experimental pipeline including both Ripser and GUDHI cubical persistence.
-    \item Evidence that topology's predictive value for forgetting is conditional on dataset: topology rescues prediction on CUB-200 (permutation $p = 0.037$, suggestive) but not on RESISC-45 ($p = 0.566$) or CIFAR-100 ($p = 0.295$, where parameter count dominates).
-    \item A WRN-28-$k$ width ladder (6 widths, $k = 1, 2, 4, 6, 8, 10$) isolating topology from model scale, showing consistent $H_0$ monotonicity ($\rho = -1.0$ vs.\ width on all 3 datasets) and perfect Ripser--GUDHI agreement, validating $H_0$ as a structurally meaningful landscape summary.
-    \item An exploratory post-hoc observation that $H_0$ correlates with EWC mitigation benefit ($\rho = 0.76$--$0.86$) on 2 of 3 datasets, with controlled regression demonstrating that $H_0$ retains predictive power after controlling for parameter count and architectural depth (RESISC-45 $p < 0.001$, pooled $p = 0.012$). This finding was not part of the original study design, is supported by a pooled interaction model (permutation $p = 0.046$) that does not survive strict correction, and requires pre-registered confirmatory replication. We report it with explicit falsification targets (Section~\ref{sec:limitations}).
-    \item A proposed mechanistic account (basin fragmentation hypothesis) linking $H_0$ to regularization sensitivity, offered as a candidate explanation to guide future confirmatory work.
-    \item Open-source release of all code, configurations, and results.\footnote{\url{https://github.com/Axion-Deep-Labs/persist-topological-forgetting}}
-\end{enumerate}
+In this work, we take a step toward answering this question by evaluating topology-based predictors in a cross-dataset continual learning setting. We construct a large-scale empirical study spanning 19 architectures and six ordered task pairs across three datasets, yielding 114 cross-dataset training trajectories. This setting introduces a more realistic and challenging regime, where differences in data distribution amplify both forgetting dynamics and measurement artifacts.
+
+Our findings refine and partially revise the role of loss landscape topology in continual learning:
+
+\begin{itemize}
+    \item \textbf{Topology contains a pooled predictive signal for retention, not a uniform per-pair relationship.} The zeroth-order persistent homology feature count ($H_0$) shows a robust pooled effect on Task A retention under naive sequential fine-tuning ($p < 0.001$) in a mixed-effects model with architecture random intercepts. Per-pair Spearman correlations on the same data are heterogeneous, so the signal manifests at the pooled aggregation level rather than as a uniform per-pair effect.
+    \item \textbf{The topology-EWC mitigation relationship is a boundary condition, not a generalization.} Within-dataset $H_0$-EWC correlations observed in prior work do not survive cross-dataset pooling at the scales tested here. We treat this as informative scope-setting on when topology predicts mitigation benefit, not as a refutation of the broader topology-forgetting phenomenon.
+    \item \textbf{Topology signals are scale-dependent.} At larger scale (ImageNet-100, $n = 8$ production-scale architectures), we observe a regime shift in which first-order features ($H_1$) dominate the topology signal, reversing the $H_0$-dominance seen at smaller scales. The reversal is reported as observational; we do not claim a causal mechanism.
+\end{itemize}
+
+Together, these results reposition loss landscape topology not as a universal predictor, but as a conditional signal whose utility depends on dataset regime, learning dynamics, and evaluation setting.
+
+The contribution of this paper is therefore not a single predictive model, but an empirical map of when and how topology provides useful signal in continual learning. This map clarifies the limits of current approaches and motivates future work on topology-aware mitigation strategies. Code, configurations, and results are released open source.\footnote{\url{https://github.com/Axion-Deep-Labs/persist-topological-forgetting}}
 
 % ════════════════════════════════════════
 \section{Related Work}
 \label{sec:related}
 
 \paragraph{Continual Learning and Catastrophic Forgetting.}
-Strategies for mitigating forgetting broadly fall into regularization-based methods \citep{kirkpatrick2017overcoming, zenke2017continual}, replay-based methods \citep{rebuffi2017icarl, shin2017continual}, and architecture-based methods \citep{rusu2016progressive, mallya2018packnet}. EWC \citep{kirkpatrick2017overcoming} penalizes changes to parameters deemed important by the Fisher information matrix, effectively anchoring the network near the Task A minimum. Our work is orthogonal to method development: rather than proposing a new mitigation strategy, we investigate whether pre-training landscape properties predict how much a given mitigation method will help.
+Mitigation strategies for forgetting broadly fall into regularization-based methods \citep{kirkpatrick2017overcoming, zenke2017continual}, replay-based methods \citep{rebuffi2017icarl, shin2017continual}, and architecture-based methods \citep{rusu2016progressive, mallya2018packnet}. EWC \citep{kirkpatrick2017overcoming} penalizes changes to parameters deemed important by the Fisher information matrix, effectively anchoring the network near the Task A minimum. Our work is orthogonal to method development: rather than proposing a new mitigation strategy, we investigate whether pre-training landscape properties predict retention dynamics, and the conditions under which they predict mitigation benefit, in cross-dataset continual learning.
 
 \paragraph{Loss Landscape Analysis.}
 \citet{li2018visualizing} introduced filter-normalized random directions for meaningful cross-architecture visualization of loss surfaces. \citet{keskar2017on} linked sharpness (largest Hessian eigenvalue) to generalization. \citet{garipov2018loss} demonstrated low-loss paths between independently trained minima, establishing mode connectivity as a key landscape property. We adopt filter-normalized 2D cross-sections following \citet{li2018visualizing} and compute topological invariants on the resulting surfaces.
@@ -203,179 +207,127 @@ We also compute the area under the retention curve (AURC) via trapezoidal integr
     \label{eq:ewc_benefit}
 \end{equation}
 
+\paragraph{Full-softmax vs.\ restricted-softmax retention.}
+When Tasks A and B come from different datasets, retention computed via full-softmax over the expanded $K_A + K_B$ classifier head reflects two effects: backbone drift (loss of Task A representations) and classifier-head re-routing (Task A logits being eclipsed by inflated Task B logits even when the backbone still encodes Task A correctly). To isolate backbone drift, we additionally compute restricted-softmax retention by evaluating Task A inputs over only the original $K_A$ classifier outputs, holding the Task B head fixed. We use restricted-softmax retention as the primary metric for our cross-dataset analyses and report full-softmax retention alongside it for comparison.
+
 \subsection{Statistical Analysis}
 \label{sec:stats}
 
-\paragraph{Per-dataset analysis (Phases 4--5).}
-For each dataset independently, we compute:
-\begin{itemize}
-    \item Spearman rank correlations between topology/params and forgetting metrics, with Bonferroni correction across 12 tests (adjusted $\alpha = 0.004$).
-    \item Partial correlations controlling for parameter count.
-    \item Within-WRN-ladder analysis (6 widths, fixed architecture family).
-    \item LOAO Ridge regression: for each held-out architecture, fit a Ridge model on the remaining $n - 1$ architectures and predict the held-out retention. Nested alpha selection via inner LOO. We compare three feature sets: params-only (raw parameter count), topology-only ($H_0$, $H_1$ total persistence), and params + topology.
-    \item Permutation test: 1000 shuffles of topology columns, testing whether topology improves prediction beyond params.
-    \item Matched-dimensionality null control: 1000 random feature draws matching topology dimensionality, to verify that improvement is not an artifact of added degrees of freedom.
-\end{itemize}
+\paragraph{Per-pair correlation analysis.}
+For each of the six ordered cross-dataset task pairs, we compute Spearman rank correlations between topology features ($H_0$, $H_1$) and the retention/EWC-benefit outcomes across the 19 architectures. We apply Bonferroni correction to per-pair tests (adjusted $\alpha = 0.0083$ across six pairs).
 
-\paragraph{Pooled interaction analysis (Phase 6).}
-To formally test whether dataset moderates the topology--forgetting relationship, we pool all 57 observations (19 architectures $\times$ 3 datasets) and fit OLS models with interaction terms, using CIFAR-100 as the reference dataset:
-\begin{align}
-    \text{M0:}\quad Y &= \beta_0 + \beta_1 \hat{p} + \beta_2 D_C + \beta_3 D_R \nonumber \\
-    &\quad + \beta_4 \hat{p} D_C + \beta_5 \hat{p} D_R + \epsilon \label{eq:m0} \\[4pt]
-    \text{M1:}\quad Y &= \text{M0} + \gamma_1 \tilde{H}_0 + \gamma_2 \tilde{H}_0 D_C + \gamma_3 \tilde{H}_0 D_R + \epsilon \label{eq:m1}
-\end{align}
-where $\hat{p} = \log(\text{params})$ globally standardized, $\tilde{H}_0$ is $H_0$ z-scored within each dataset, $D_C$ and $D_R$ are indicator variables for CUB-200 and RESISC-45 respectively. $H_0$ is z-scored within dataset to remove cross-dataset scale differences while preserving within-dataset rank information.
+\paragraph{Pooled mixed-effects analysis.}
+The primary cross-dataset analysis is a linear mixed-effects model fit on all $n = 114$ trajectories (six task pairs $\times$ 19 architectures), with architecture as a random intercept to absorb across-architecture variation:
+\begin{align*}
+    \text{ret}_{10} &\sim H_0 z + H_1 z + \log(\text{params}) + (1 \mid \text{arch}), \\
+    \text{ewc\_benefit} &\sim H_0 z + H_1 z + \log(\text{params}) + (1 \mid \text{arch}),
+\end{align*}
+where $H_0 z$ and $H_1 z$ are within-trajectory z-scored topology features. Fixed effects are tested with Wald $z$-tests and 95\% confidence intervals; the random-effect variance is tested via the usual likelihood-ratio approximation. We do not include explicit dataset interaction terms in the primary specification, as the random architecture intercept and the within-trajectory z-scoring are sufficient to absorb most of the across-pair scale heterogeneity. Sensitivity analyses with explicit pair indicators yield qualitatively identical results.
 
-\paragraph{Inference.}
-We use clustered bootstrap (5000 iterations, resampling 19 architecture blocks of 3) to obtain 95\% confidence intervals that account for the non-independence of observations from the same architecture across datasets. Permutation testing (1000 iterations, $H_0$ shuffled within dataset) provides a distribution-free significance test. The primary hypothesis test is a block test of $\{\gamma_1, \gamma_2, \gamma_3\}$ (does adding $H_0$ and its interactions improve M0?). The secondary test targets $\{\gamma_2, \gamma_3\}$ conditional on $\gamma_1$ (does the $H_0$ effect vary across datasets?). Variance inflation factors (VIF) are computed for all predictors; all fall below 3.5 in the z-scored specification.
-
-Robustness checks include: (i) a reduced model omitting $\hat{p} \times D$ interactions, (ii) raw $H_0$ (not z-scored) sensitivity analysis, and (iii) alternative outcome variables.
+\paragraph{Scale-validation analysis (Phase~I-A).}
+The ImageNet-100 sweep is analyzed as a separate scale-validation step on $n = 8$ production-scale configurations, using Spearman rank correlations between the topology features and the analogous outcome variable. This analysis is reported as exploratory at the current sample size and does not enter the pooled mixed-effects model.
 
 % ════════════════════════════════════════
 \section{Results}
 \label{sec:results}
 
-\subsection{Per-Dataset Forgetting Prediction}
+This section reports our cross-dataset findings (Phase~I-B) on retention prediction and EWC mitigation, the contrasting null result for EWC mitigation benefit at the same scale, and the scale-regime shift observed at production scale (Phase~I-A on ImageNet-100). Retention metrics throughout cross-dataset analyses are computed using restricted-softmax retention (Section~\ref{sec:method}); full-softmax retention is reported alongside it for comparison.
 
-Table~\ref{tab:perdataset} presents the LOAO Ridge regression results for each dataset. Topology's predictive value varies dramatically across datasets.
+\subsection{Cross-Dataset Retention Prediction}
+\label{sec:results_q1}
+
+Across $n = 114$ cross-dataset trajectories (six ordered task pairs across three datasets, $\times$ 19 architectures), $H_0$ is a strong predictor of Task~A retention under naive sequential fine-tuning. We fit the pooled mixed-effects model
+\begin{equation*}
+\text{ret}_{10} \sim H_0 z + H_1 z + \log(\text{params}) + (1 \mid \text{arch}),
+\end{equation*}
+where $H_0 z$ and $H_1 z$ are within-trajectory z-scored topology features and a random intercept absorbs across-architecture variation. Table~\ref{tab:phase8_q1} reports the fixed and random effects.
 
 \begin{table}[t]
 \centering
-\caption{Per-dataset LOAO Ridge regression results. Topology rescues prediction on CUB-200 but not the other two datasets. Bold indicates suggestive or significant results.}
-\label{tab:perdataset}
+\caption{Pooled mixed-effects retention model on $n = 114$ cross-dataset trajectories. The negative $H_0$ coefficient indicates that landscapes with greater $H_0$ persistence retain less of Task~A under naive fine-tuning. Bold: $p < 0.001$.}
+\label{tab:phase8_q1}
 \small
-\setlength{\tabcolsep}{3pt}
-\begin{tabular}{@{}llccc@{}}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lrrrl@{}}
 \toprule
-Dataset & Outcome & Params $\rho$ & +Topo $\rho$ & Perm.\ $p$ \\
+Term & Coef & SE & $p$ & 95\% CI \\
 \midrule
-CIFAR-100  & ret@100 & 0.43  & 0.30  & 0.295 \\
-CUB-200    & ret@10  & $-$0.92 & \textbf{0.34} & \textbf{0.037} \\
-RESISC-45  & ret@100 & $-$0.32 & $-$0.33 & 0.566 \\
+Intercept     & $+1.519$ & 0.467 & 0.001 & $[+0.603, +2.435]$ \\
+$H_0 z$       & $-0.066$ & 0.020 & \textbf{0.0009} & $[-0.106, -0.027]$ \\
+$H_1 z$       & $-0.071$ & 0.034 & 0.036 & $[-0.137, -0.004]$ \\
+$\log(\text{params})$ & $-0.144$ & 0.069 & 0.038 & $[-0.279, -0.008]$ \\
+Arch (RE var) & $+1.358$ & 0.637 & 0.033 & $[+0.109, +2.607]$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\paragraph{CIFAR-100.} Parameter count dominates forgetting prediction ($\rho = -0.76$, $p = 0.0002$, survives Bonferroni). Adding topology does not improve the params-only model (permutation $p = 0.295$). Topology is redundant when scale already explains the outcome.
+The $H_0$ effect ($p = 0.0009$) is roughly an order of magnitude stronger than the next-strongest predictors. $H_1$ persistence ($p = 0.036$) and $\log(\text{params})$ ($p = 0.038$) appear as weaker but statistically significant secondary predictors. This suggests that multiple aspects of model geometry and capacity contribute to retention, with $H_0$ capturing the dominant effect at this scale. The architecture random-effect variance is also significant ($p = 0.033$), confirming that across-architecture variation in retention is real and non-negligible; the $H_0$ effect remains significant after this variation is absorbed.
 
-\paragraph{CUB-200.} Parameters alone fail ($\rho = -0.27$, $p = 0.27$) and, used as the sole LOAO predictor, produce a correlation of $\rho = -0.92$ with observed retention (negatively correlated: the model systematically predicts high retention for architectures that forget most). Adding topology rescues prediction: LOAO $\rho = 0.34$, permutation $p = 0.037$. Topology-only achieves $\rho = 0.33$ with MAE $= 0.147$, outperforming params-only. The topology improvement exceeds the 95th percentile of the matched-dimensionality null distribution, and MAE reduction is 17.5\%. However, $p = 0.037$ does \emph{not} survive Bonferroni correction across 3 datasets (adjusted $\alpha = 0.0167$). We report this as suggestive.
+The fixed-effect coefficient on $H_0 z$ is the pooled effect across all six task pairs and all 19 architectures; it is not a per-pair claim. The WRN-28-$k$ width ladder (Section~\ref{sec:wrn}) provides supporting evidence that $H_0$ tracks a structurally meaningful property of the loss landscape rather than an artifact of any one architecture family.
 
-\paragraph{RESISC-45.} Neither parameters ($\rho = -0.29$, $p = 0.22$) nor topology (permutation $p = 0.566$) predict forgetting. The signal is absent on this dataset.
-
-\subsection{EWC Benefit: The Cross-Dataset Signal}
+\subsection{EWC Mitigation Benefit at Cross-Dataset Scale}
 \label{sec:ewc_benefit}
 
-While topology's relationship to raw forgetting is dataset-dependent, we find a more consistent signal when the outcome is \emph{mitigation benefit} rather than forgetting itself. Table~\ref{tab:ewc_corr} shows $H_0$ persistence correlates with EWC benefit on 2 of 3 datasets.
+The same mixed-effects specification, applied to EWC mitigation benefit ($\text{ret}_{\text{EWC}} - \text{ret}_{\text{naive}}$), returns null fixed effects throughout. Table~\ref{tab:phase8_q4} summarizes.
 
 \begin{table}[t]
 \centering
-\caption{$H_0$ persistence vs.\ EWC benefit (ret$_{\text{EWC}}$ $-$ ret$_{\text{naive}}$). Spearman $\rho$ with bootstrap 95\% CI ($B = 10{,}000$), Kendall $\tau$, and leave-one-out (LOO) stability. Bold $\rho$: survives Bonferroni ($\alpha = 0.004$).}
-\label{tab:ewc_corr}
+\caption{Pooled mixed-effects model for EWC mitigation benefit on $n = 114$ cross-dataset trajectories. None of $H_0$, $H_1$, or $\log(\text{params})$ predict EWC benefit at cross-dataset scale.}
+\label{tab:phase8_q4}
 \small
-\setlength{\tabcolsep}{2.5pt}
-\begin{tabular}{@{}lccccc@{}}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lrrrl@{}}
 \toprule
-Dataset & $\rho$ & 95\% CI & $p$ & $\tau$ & LOO $\Delta\rho$ \\
+Term & Coef & SE & $p$ & 95\% CI \\
 \midrule
-CIFAR-100  & \textbf{0.76} & [0.46, 0.91] & \textbf{0.0002} & 0.57 & 0.11 \\
-RESISC-45  & \textbf{0.86} & [0.65, 0.94] & $\mathbf{< 0.001}$ & 0.67 & 0.07 \\
-CUB-200    & 0.31 & [$-$0.22, 0.78] & 0.190 & 0.26 & 0.30 \\
+Intercept     & $-0.072$ & 0.074 & 0.331 & $[-0.218, +0.073]$ \\
+$H_0 z$       & $+0.007$ & 0.006 & 0.231 & $[-0.004, +0.018]$ \\
+$H_1 z$       & $+0.007$ & 0.007 & 0.292 & $[-0.006, +0.020]$ \\
+$\log(\text{params})$ & $+0.011$ & 0.011 & 0.320 & $[-0.011, +0.033]$ \\
+Arch (RE var) & $+0.155$ & 0.141 & 0.271 & $[-0.121, +0.431]$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-This is the most stable cross-dataset signal in our study. Architectures with more fragmented loss landscapes (higher $H_0$) benefit more from EWC regularization. The CIFAR-100 and RESISC-45 correlations are corroborated by Kendall $\tau$ ($0.57$ and $0.67$, both $p < 0.001$) and show moderate leave-one-out stability (maximum $\rho$ shift of $0.11$ and $0.07$ when dropping the most influential architecture). The CUB-200 correlation is non-significant with a wide CI spanning zero and higher LOO instability ($\Delta\rho = 0.30$), consistent with the absence of a genuine effect on this dataset.
+This null result stands in contrast to within-dataset findings on individual datasets in earlier work, where $H_0$ correlated with EWC benefit on CIFAR-100 ($\rho \approx 0.76$) and RESISC-45 ($\rho \approx 0.86$). When the same architectures are evaluated across heterogeneous task pairs, the relationship between landscape topology and EWC mitigation benefit washes out. The architecture random-effect variance is also non-significant in this model ($p = 0.271$), suggesting that the variation we observe in EWC benefit at this scale is closer to noise than to systematic structure that $H_0$, $H_1$, $\log(\text{params})$, or architecture identity captures.
 
-\subsection{Controlling for Model Capacity}
-\label{sec:capacity_control}
-
-A natural concern is whether $H_0$ merely proxies for parameter count. The WRN width ladder shows perfect $H_0$--capacity monotonicity ($\rho = -1.0$), and the bivariate Spearman correlations between $H_0$ and EWC benefit could reflect a shared dependence on model scale. To test this directly, we fit per-dataset OLS regressions of EWC benefit on $\log(\text{params})$ and $H_0$ jointly, asking whether $H_0$ retains predictive power after controlling for capacity. Table~\ref{tab:capacity_control} presents the results.
-
-\begin{table}[t]
-\centering
-\caption{Controlled regression: EWC benefit $\sim$ $\log(\text{params})$ $+$ $H_0$. $R^2$ columns show variance explained by each predictor set. $H_0$ $p$ tests whether topology contributes beyond parameter count. Adding depth (weight-bearing layer count) as a third predictor does not reach significance on any dataset ($p > 0.26$) and does not change the $H_0$ coefficient.}
-\label{tab:capacity_control}
-\small
-\setlength{\tabcolsep}{2.5pt}
-\begin{tabular}{@{}lccccc@{}}
-\toprule
-Dataset & $R^2_{\text{params}}$ & $R^2_{H_0}$ & $R^2_{\text{both}}$ & $H_0$ $p$ & Partial $\rho$ \\
-\midrule
-CIFAR-100 ($n\!=\!19$)  & 0.527 & 0.304 & 0.626 & 0.056 & +0.39 \\
-CUB-200 ($n\!=\!19$)    & 0.212 & 0.017 & 0.216 & 0.767 & +0.28 \\
-RESISC-45 ($n\!=\!19$)  & 0.242 & 0.645 & \textbf{0.764} & $\mathbf{< 0.001}$ & \textbf{+0.63} \\
-Pooled ($n\!=\!57$)      & 0.262 & 0.150 & 0.344 & \textbf{0.012} & \textbf{+0.33} \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-On RESISC-45, $H_0$ alone explains more variance ($R^2 = 0.645$) than parameter count ($R^2 = 0.242$), and remains highly significant in the joint model ($p < 0.001$). The combined model reaches $R^2 = 0.764$, with the partial Spearman correlation of $H_0$ residuals on EWC benefit residuals at $\rho = +0.63$ ($p = 0.004$). In the pooled analysis, $H_0$ remains significant ($p = 0.012$) after controlling for $\log(\text{params})$. On CIFAR-100, $H_0$ is marginal ($p = 0.056$), directionally consistent but underpowered at $n = 19$. On CUB-200, $H_0$ contributes nothing beyond parameters, consistent with the null Spearman correlation on that dataset.
-
-These results establish that $H_0$ is not merely a proxy for model size. On RESISC-45, topology is the dominant predictor; on CIFAR-100, it provides additive (if borderline) information; on CUB-200, neither topology nor parameters strongly predict EWC benefit.
-
-\subsection{Pooled Interaction Analysis}
-\label{sec:pooled}
-
-To test whether dataset moderates the $H_0$ effect, we fit the pooled OLS interaction model (Equations~\ref{eq:m0}--\ref{eq:m1}) on all 57 observations. Table~\ref{tab:pooled} presents the main results.
-
-\begin{table}[t]
-\centering
-\caption{Pooled interaction model results. $\Delta R^2$ is the improvement from adding $H_0$ terms (M1 vs.\ M0). Block $p$ tests $\{\gamma_1, \gamma_2, \gamma_3\}$ jointly. Bold: $p < 0.05$.}
-\label{tab:pooled}
-\small
-\setlength{\tabcolsep}{2pt}
-\begin{tabular}{@{}lccccc@{}}
-\toprule
-Outcome & $R^2_{\text{M0}}$ & $R^2_{\text{M1}}$ & $\Delta R^2$ & Block $p$ & Verdict \\
-\midrule
-EWC ben.\ (AURC) & 0.502 & 0.587 & \textbf{0.085} & \textbf{0.046} & Sig. \\
-ret@10 & 0.179 & 0.254 & 0.075 & 0.196 & NS \\
-ret@100 & 0.297 & 0.423 & \textbf{0.127} & \textbf{0.035} & Sig. \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-The primary result is the EWC benefit (AURC) model: adding $H_0$ and its dataset interactions improves $R^2$ from 0.502 to 0.587, with permutation $p = 0.046$ for the block test. The ret@100 model reaches $p = 0.035$ as a robustness check, while the primary forgetting outcome (ret@10) does not reach significance ($p = 0.196$).
-
-\paragraph{Per-dataset partial effects.}
-Table~\ref{tab:partial_effects} shows the per-dataset $H_0$ partial effects with 95\% clustered bootstrap confidence intervals.
-
-\begin{table}[t]
-\centering
-\caption{Per-dataset partial effect of $\tilde{H}_0$ (z-scored within dataset) with 95\% clustered bootstrap CIs. Bold: CI excludes zero.}
-\label{tab:partial_effects}
-\small
-\setlength{\tabcolsep}{3pt}
-\begin{tabular}{@{}llrl@{}}
-\toprule
-Outcome & Dataset & Effect & 95\% CI \\
-\midrule
-\multirow{3}{*}{ret@10}
-  & CIFAR-100  & $-$0.001 & [$-$0.486, +0.073] \\
-  & CUB-200    & \textbf{$-$0.123} & \textbf{[$-$0.183, $-$0.046]} \\
-  & RESISC-45  & $-$0.021 & [$-$0.264, +0.083] \\
-\midrule
-\multirow{3}{*}{\shortstack[l]{EWC ben.\\ (AURC)}}
-  & CIFAR-100  & \textbf{+0.016} & \textbf{[+0.005, +0.062]} \\
-  & CUB-200    & +0.002 & [$-$0.008, +0.013] \\
-  & RESISC-45  & \textbf{+0.007} & \textbf{[+0.004, +0.012]} \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-For ret@10, only the CUB-200 partial effect excludes zero from its CI, consistent with the per-dataset LOAO result. For EWC benefit, CIFAR-100 and RESISC-45 both exclude zero, while CUB-200 does not, consistent with the per-dataset Spearman correlations in Table~\ref{tab:ewc_corr}. Figure~\ref{fig:pooled_interaction} visualizes the moderation pattern.
+Figure~\ref{fig:phase8_coef} visualizes the contrast: in the retention panel $H_0$ is the dominant predictor and $H_1$ and $\log(\text{params})$ are weaker but significant secondary effects, all with negative coefficients (greater feature persistence and larger capacity associate with reduced retention); in the EWC mitigation panel all three fixed effects are null with confidence intervals straddling zero.
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=\columnwidth]{pooled_interaction_figure.pdf}
-\caption{Per-dataset partial effects of within-dataset $\tilde{H}_0$ with 95\% clustered bootstrap CIs. Left: effect on retention (ret@10); the CUB-200 effect excludes zero. Right: effect on EWC benefit; CIFAR-100 and RESISC-45 effects exclude zero while CUB-200 does not, demonstrating dataset moderation (block permutation $p = 0.046$).}
-\label{fig:pooled_interaction}
+\includegraphics[width=\columnwidth]{figures/phase8_coefficients.pdf}
+\caption{Phase 8 mixed-effects fixed-effect coefficients with 95\% confidence intervals on $n = 114$ cross-dataset trajectories. Filled markers denote $p < 0.001$; open markers denote $p < 0.05$ with non-zero CI; gray markers denote non-significant coefficients with CIs that include zero. \emph{Left:} retention (ret$_{10}$); $H_0$ is the dominant predictor with $H_1$ and $\log(\text{params})$ as weaker but significant secondary effects. \emph{Right:} EWC mitigation benefit; all three predictors are null at this scale.}
+\label{fig:phase8_coef}
 \end{figure}
 
-All VIF values fall below 3.5 in the z-scored specification. Robustness checks support consistent inference: the reduced model (omitting $\hat{p} \times D$ interactions) yields $p = 0.031$ for both ret@100 and EWC benefit. The raw $H_0$ (not z-scored) sensitivity analysis produces the same qualitative conclusions.
+\subsection{Scale Regime Shift on ImageNet-100}
+\label{sec:results_scale}
 
-\paragraph{Influence diagnostics.}
-Cook's distance analysis of the EWC benefit model identifies ConvNeXt-Tiny (CIFAR-100) as a high-leverage point ($D = 2.89$, threshold $4/n = 0.07$), driven by its unusual combination of high parameter count and high leverage in the design matrix. Five additional observations exceed the Cook's $D$ threshold. The maximum DFBETAS for the $\tilde{H}_0$ coefficient is 0.026, indicating that no single observation qualitatively alters the $H_0$ effect estimate. Nevertheless, the presence of influential points in a 57-observation model underscores the fragility of the pooled result and the need for replication with larger architecture samples.
+To test whether the topology--retention pattern persists at production scale, we ran an ImageNet-100 sweep across eight large-scale configurations: ResNet-101, ConvNeXt-Small, ConvNeXt-Base, ConvNeXt-Large, EfficientNet-B5, DenseNet-201, ViT-B/16, and ViT-L/16. Two additional configurations (ViT-H/14, WRN-40-10) were dropped for incompatibility with the $224 \times 224$ pipeline. Table~\ref{tab:phase1a} reports the per-architecture topology features and retention.
+
+\begin{table}[t]
+\centering
+\caption{Phase~I-A scale validation: per-architecture topology features and retention on ImageNet-100. $H_0$ values are total persistence (lifetime sum); $H_1$ is total persistence on a $50 \times 50$ grid. ret$_{100}$ is task-A retention 100 steps into Task~B sequential fine-tuning. Architectures span $20$~M to $304$~M parameters.}
+\label{tab:phase1a}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+Architecture & Params (M) & $H_0$ & $H_1$ & ret$_{10}$ & ret$_{100}$ \\
+\midrule
+ResNet-101       &  44.5 & 12{,}127 & 0.000 & 0.995 & 0.981 \\
+DenseNet-201     &  20.0 & 10{,}788 & 0.000 & 0.973 & 0.829 \\
+EfficientNet-B5  &  30.4 & 10{,}658 & 0.964 & 1.001 & 0.985 \\
+ConvNeXt-Small   &  50.2 & 10{,}429 & 0.782 & 1.000 & 0.997 \\
+ConvNeXt-Base    &  88.6 &  9{,}938 & 1.477 & 1.000 & 0.997 \\
+ViT-B/16         &  86.6 &  9{,}694 & 0.022 & 0.994 & 0.966 \\
+ConvNeXt-Large   & 197.8 &  9{,}692 & 1.513 & 0.999 & 0.998 \\
+ViT-L/16         & 304.0 &  9{,}278 & 0.213 & 0.998 & 0.984 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+At this scale, the dominant topology predictor reverses. Across the eight configurations, $H_1$ persistence predicts ret$_{100}$ at Spearman $\rho = +0.934$ ($p = 0.0007$), while $H_0$ (the dominant predictor at smaller scales) drops to $\rho = -0.405$ ($p = 0.32$). $\log(\text{params})$ similarly fails to predict ret$_{100}$ at this scale ($\rho = +0.524$, $p = 0.18$). The $H_1$ values themselves vary widely across architectures (range $0.000$ to $1.513$), with ResNet-101 and DenseNet-201 producing zero $H_1$ at the $50 \times 50$ grid resolution and the ConvNeXt family producing the highest values. This regime shift is consistent with the geometric intuition that loop structure ($H_1$) becomes more discriminative as parameter spaces and feature manifolds become richer, while basin-count topology ($H_0$) saturates or becomes less discriminative when the underlying landscape supports many small basins regardless of architecture. We do not extrapolate beyond these eight configurations; whether the regime shift is specific to ImageNet-100, to the architecture set tested, or to a particular range of capacity remains open.
 
 \subsection{WRN Width Ladder}
 \label{sec:wrn}
@@ -397,38 +349,20 @@ Cubical vs.\ Ripser $H_1$ & $+1.0$ & All 3 \\
 \end{tabular}
 \end{table}
 
-$H_0$ persistence monotonically decreases with network width ($\rho = -1.0$ vs.\ parameter count) on CIFAR-100, CUB-200, and RESISC-45. This is consistent with the intuition that wider networks have smoother loss landscapes with fewer disconnected basins. Cubical and Ripser $H_1$ values show perfect rank agreement ($\rho = 1.0$), confirming that the topological measurement is reliable and method-independent.
-
-The width ladder demonstrates that the topological measurement is monotonic with capacity across all 3 tested datasets. It is the \emph{relationship} between topology and forgetting/mitigation that varies by task, not the topology--capacity link.
+$H_0$ persistence monotonically decreases with network width ($\rho = -1.0$ vs.\ parameter count) on CIFAR-100, CUB-200, and RESISC-45. This is consistent with the intuition that wider networks have smoother loss landscapes with fewer disconnected basins. Cubical and Ripser $H_1$ values show perfect rank agreement ($\rho = 1.0$), confirming that the topological measurement is method-independent. With only six widths, perfect rank correlation is consistent with a structural relationship but can also occur by chance, and we treat the ladder as supporting evidence for the validity of the $H_0$ measurement rather than as a primary result.
 
 % ════════════════════════════════════════
-\section{Basin Fragmentation \mbox{Hypothesis}}
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Toward a Mechanism: Basin Fragmentation Hypothesis}
 \label{sec:hypothesis}
 
-The results in Sections~\ref{sec:ewc_benefit}--\ref{sec:wrn} motivate a mechanistic hypothesis linking loss landscape topology to mitigation benefit.
+One possible explanation for the relationship between topological features and retention observed in this study is \textbf{basin fragmentation}. $H_0$ persistence in the sublevel-set filtration counts connected components of low-loss regions; intuitively, landscapes with greater $H_0$ contain more disconnected basins separated by high-loss barriers, while landscapes with low $H_0$ resemble a single broad basin. We hypothesize that fragmented landscapes provide more locally robust solutions that resist drift during sequential training: parameters anchored within one basin are less likely to be pulled across a barrier into a region that encodes only the new task. Smoother landscapes, by contrast, may already be intrinsically robust without requiring topological characterization, which would explain why $H_0$ contributes a pooled predictive signal for retention across heterogeneous cross-dataset task pairs while the same predictor does not generalize to mitigation benefit at the scales tested here.
 
-$H_0$ persistence in the sublevel-set filtration counts connected components and their relative depths. High $H_0$ corresponds to a \emph{fragmented} landscape with many disconnected low-loss basins separated by high-loss barriers. We propose:
+However, the present study does not test this mechanism directly. The results establish \emph{when} topology contains predictive signal for retention, not \emph{why}. The cross-dataset pooled null on EWC mitigation benefit further indicates that the topology-mitigation relationship is a boundary condition rather than a straightforward generalization of the within-dataset findings.
 
-\begin{quote}
-\textbf{Basin Fragmentation Hypothesis.} $H_0$ measures landscape fragmentation that determines how much curvature-based regularization (e.g., EWC) helps by preventing inter-basin drift during sequential training.
-\end{quote}
-
-The mechanism is as follows. When the loss landscape is fragmented (high $H_0$), naive sequential training on Task B can push parameters across basin boundaries, causing them to settle in a different basin that encodes Task B at the expense of Task A. EWC penalizes deviations from the Task A minimum in proportion to Fisher information \citep{kirkpatrick2017overcoming}, effectively constraining the optimization trajectory to remain near the original basin. This constraint is maximally beneficial when there are many basins to drift between (high $H_0$) and minimally beneficial when the landscape is already smooth with a single broad basin (low $H_0$), because EWC then addresses a nonexistent problem.
-
-Three lines of evidence support this hypothesis:
-\begin{enumerate}
-    \item $H_0$ predicts EWC benefit on CIFAR-100 ($\rho = 0.76$) and RESISC-45 ($\rho = 0.86$), with the pooled interaction model confirming moderation at $p = 0.046$.
-    \item The WRN width ladder shows $H_0$ decreases monotonically with width ($\rho = -1.0$), consistent with wider networks having smoother, less fragmented landscapes.
-    \item CUB-200 shows no $H_0$--EWC benefit relationship ($\rho = 0.31$, $p = 0.19$), possibly because fine-grained recognition involves interference mechanisms (e.g., feature-level competition) that EWC-style regularization addresses differently, though we have no direct evidence for this.
-\end{enumerate}
-
-This hypothesis is tentative. A causal test would require a landscape-aware regularization intervention: artificially increasing landscape fragmentation and testing whether EWC benefit increases correspondingly. We leave this to future work.
-
-% ════════════════════════════════════════
-\section{Analysis Path Transparency}
-\label{sec:transparency}
-
-The original hypothesis for this study targeted topology as a direct forgetting predictor, motivated by preliminary CIFAR-100 results suggesting $H_1$ correlation with retention. The expanded study proceeded in temporal order: CIFAR-100 ran first, revealing that parameter count dominates forgetting prediction and $H_1$ drops to non-significance after partialing out params. CUB-200 ran second, showing topology rescues prediction where params fail (permutation $p = 0.037$). RESISC-45 ran third, producing a null result that falsified the simple ``hard tasks need topology'' framing. The EWC benefit finding emerged from Phase 4 diagnostic analysis, specifically the correlation of $H_0$ with EWC retention minus naive retention, and was not part of the original study design. The pooled interaction model (Phase 6) was designed after observing the per-dataset EWC pattern. Accordingly, the EWC moderation finding ($p = 0.046$) should be interpreted as a \emph{discovery} requiring pre-registered replication, not as confirmatory evidence.
+Future work should investigate whether basin structure causally mediates forgetting dynamics. Promising directions include (i) intervening on loss landscape geometry via sharpness-aware minimization or controlled weight-decay sweeps to change $H_0$ while holding other landscape properties approximately fixed; (ii) tracking basin transitions during sequential training using filtration-curve analysis; and (iii) testing whether the topology--retention relationship persists under non-curvature-based mitigation methods (e.g., replay), which the basin fragmentation account predicts should differ in pattern from EWC. The hypothesis is offered as a candidate mechanism to guide future confirmatory work, not as a claim supported by the present results.
 
 % ════════════════════════════════════════
 \section{Limitations}
@@ -436,50 +370,47 @@ The original hypothesis for this study targeted topology as a direct forgetting 
 
 \subsection{Scope and Design}
 \begin{enumerate}
-    \item \textbf{Small-scale models only.} All 19 architectures are under 45M parameters. Production continual learning systems use models with 100M--7B+ parameters. Whether the topological signal persists at that scale is genuinely unknown. Computing persistent homology on large parameter spaces introduces superpolynomial computational barriers that may require novel distributed algorithms.
-    \item \textbf{Two-task sequences.} We test only a single Task A $\rightarrow$ Task B transition. Real continual learning involves 10--100+ sequential tasks. Topology--forgetting dynamics over long task sequences are entirely unexplored.
-    \item \textbf{Single mitigation method (no negative control).} We test only EWC. If synaptic intelligence \citep{zenke2017continual} or PackNet \citep{mallya2018packnet} show no $H_0$ correlation, the finding is EWC-specific rather than a general principle. Critically, including a non-curvature method (e.g., replay) as a negative control would test whether the basin fragmentation mechanism is specific to regularization-based approaches, as the hypothesis predicts.
-    \item \textbf{Small-image datasets and class-incremental only.} All images are $32 \times 32$, and all task sequences are class-incremental splits within a single domain. Whether the signal holds on ImageNet-scale data, NLP tasks, or cross-domain task sequences is unknown.
+    \item \textbf{Limited architecture range.} The 19 architectures span 0.3M--44.7M parameters. The Phase~I-A scale validation extends to ImageNet-100 with eight production-scale configurations, but production continual learning systems can reach 100M--7B+ parameters. Whether the topological signal patterns reported here persist at the largest scales remains open, and computing persistent homology on very large parameter spaces introduces superpolynomial computational barriers.
+    \item \textbf{Two-task sequences.} We test only a single Task A $\rightarrow$ Task B transition. Real continual learning involves 10--100+ sequential tasks. Topology--forgetting dynamics over long task sequences are unexplored in this work.
+    \item \textbf{Single mitigation method.} Mitigation analysis is restricted to EWC. The cross-dataset pooled null does not rule out that other mitigation strategies (synaptic intelligence \citep{zenke2017continual}, PackNet \citep{mallya2018packnet}, replay-based methods) might exhibit a topology--benefit relationship that EWC does not, and a negative control with a non-curvature-based method would help separate EWC-specific effects from regularization-general ones.
+    \item \textbf{Image classification only.} All datasets are image classification benchmarks with class-incremental task splits. Whether the topology--retention relationship holds on NLP tasks, structured prediction, or cross-domain task sequences is unknown.
 \end{enumerate}
 
 \subsection{Statistical Fragility}
 \begin{enumerate}
-    \item \textbf{Small effective sample size.} Per-dataset analyses operate on $n = 19$; the WRN ladder on $n = 6$. Spearman correlations at this sample size are sensitive to individual influential points. We report leave-one-out stability and bootstrap 95\% CIs (Table~\ref{tab:ewc_corr}): the CIFAR-100 CI for $\rho$ spans $[0.46, 0.91]$, which is wide. The CUB-200 CI spans zero.
-    \item \textbf{Multiple testing burden.} We report Bonferroni correction across 12 per-dataset tests, but the total implicit testing burden is larger: per-dataset correlations, partial correlations, LOAO comparisons across 3 feature sets, multiple outcomes (ret@10, ret@100, early\_aurc), pooled models with interactions, and robustness checks. The familywise error rate across the full study is likely underestimated. The borderline pooled $p = 0.046$ is especially vulnerable.
-    \item \textbf{Borderline $p$-values.} The EWC moderation ($p = 0.046$), CUB-200 forgetting ($p = 0.037$, does not survive Bonferroni), and ret@100 pooled ($p = 0.035$, not pre-specified) results constitute weak evidence under strict multiple-comparison standards.
-    \item \textbf{Exploratory model specification.} The EWC moderation model was designed after observing per-dataset patterns (Section~\ref{sec:transparency}). The pooled $p = 0.046$ is therefore exploratory, not confirmatory, and should be interpreted as hypothesis-generating only.
-    \item \textbf{High-influence observations.} Cook's distance analysis of the pooled OLS model identifies ConvNeXt-Tiny (CIFAR-100) as a high-leverage point ($D = 2.89$). While DFBETAS for the $H_0$ coefficient are small ($< 0.03$), the presence of influential points in a 57-observation model warrants caution.
-    \item \textbf{No outlier-robust alternatives.} We do not report robust regression or rank-based alternatives to OLS for the pooled model.
+    \item \textbf{Within-dataset sample sizes are small.} Per-dataset analyses operate on $n = 19$; the WRN width ladder on $n = 6$. Spearman correlations at these sample sizes are sensitive to influential points. The cross-dataset pooled mixed-effects analysis ($n = 114$ trajectories) is more robust, but its random-effects structure relies on assumptions about variance-component independence that we do not formally test.
+    \item \textbf{Multiple-testing burden.} Even with Bonferroni correction at the per-test level, the implicit testing burden across the full study (per-dataset correlations, partial correlations, multiple outcome metrics, pooled models, scale-validation comparisons) is larger than any single correction accounts for. The familywise error rate across the entire study is likely understated.
+    \item \textbf{High-influence observations.} In the pooled per-dataset OLS analyses, Cook's distance identifies ConvNeXt-Tiny (CIFAR-100) as a high-leverage point ($D = 2.89$). DFBETAS for the $H_0$ coefficient are small ($< 0.03$), but influential points in a 57-observation model still warrant caution.
+    \item \textbf{No outlier-robust alternatives reported.} We do not report robust regression or rank-based alternatives to OLS for the per-dataset pooled models.
 \end{enumerate}
 
 \subsection{Conceptual Weaknesses}
 \begin{enumerate}
-    \item \textbf{2D slice fidelity.} The entire signal depends on 2D cross-sections of a high-dimensional surface. Five independent slices reduce sampling variance but do not empirically demonstrate that this approximates the true local basin topology. There is no analysis of slice orientation sensitivity: $H_0$ in a 2D slice can reflect saddle structure or orientation artifacts rather than true basin multiplicity.
-    \item \textbf{$H_0$ and capacity.} $H_0$ is strongly tied to model capacity via the WRN width ladder ($\rho = -1.0$). However, per-dataset controlled regressions (Table~\ref{tab:capacity_control}) show that $H_0$ retains significant predictive power on RESISC-45 ($p < 0.001$) and pooled ($p = 0.012$) after controlling for $\log(\text{params})$, with $H_0$ explaining more variance than parameter count on RESISC-45 ($R^2 = 0.645$ vs.\ $0.242$). Adding architectural depth as a third covariate does not alter the $H_0$ coefficient. The confound is partially but not fully resolved: CIFAR-100 remains borderline ($p = 0.056$), and with $n = 19$ per dataset, power is limited.
-    \item \textbf{WRN perfect monotonicity.} $\rho = -1.0$ across all 3 datasets with only 6 data points ($k = 1, 2, 4, 6, 8, 10$) is consistent with a structural relationship but can also occur by chance: the probability of perfect monotonicity in 6 random points is $1/6! \approx 0.0014$ per dataset, yielding $(1/6!)^3 \approx 2.7 \times 10^{-9}$ for all three under independence. The structural interpretation is plausible but not proven.
-    \item \textbf{Mechanistic speculation.} The basin fragmentation hypothesis is entirely correlational. No experiment manipulates landscape fragmentation (e.g., via sharpness-aware minimization) to test whether EWC benefit changes correspondingly.
+    \item \textbf{2D slice fidelity.} The topology signal depends on 2D cross-sections of a high-dimensional surface. Five independent random-direction slices reduce sampling variance, but we do not empirically demonstrate that this approximates the true local basin topology. $H_0$ measured on a 2D slice can in principle reflect saddle structure or orientation artifacts rather than true basin multiplicity.
+    \item \textbf{$H_0$ and capacity.} $H_0$ is strongly tied to model capacity via the WRN width ladder ($\rho = -1.0$). Per-dataset controlled regressions show that $H_0$ retains significant predictive power on RESISC-45 ($p < 0.001$) after controlling for $\log(\text{params})$, with $H_0$ explaining more variance than parameter count on that dataset. The confound is partially but not fully resolved at small per-dataset sample sizes.
+    \item \textbf{WRN perfect monotonicity.} $\rho = -1.0$ across all three datasets with only six widths ($k = 1, 2, 4, 6, 8, 10$) is consistent with a structural relationship but can also occur by chance.
+    \item \textbf{No causal mechanism.} \emph{This study does not establish a causal mechanism linking topology to forgetting.} The relationships reported are correlational, computed from passive observation of trained networks. No experiment intervenes on landscape geometry to test whether $H_0$ changes drive retention changes correspondingly. The basin fragmentation account in Section~\ref{sec:hypothesis} is offered as a candidate hypothesis to guide future work, not as a claim supported by the present data.
+    \item \textbf{Restricted-softmax retention is novel and load-bearing.} Our use of restricted-softmax retention as the primary cross-dataset metric is not yet validated against an established cross-dataset retention literature, and the choice of metric materially conditions how the results are interpreted. We treat the full-softmax versus restricted-softmax distinction as part of the conceptual contribution: full-softmax retention reflects both backbone drift and classifier-head re-routing, while restricted-softmax isolates backbone drift alone. Future work should formalize this distinction and compare both with alternative metrics designed for cross-domain continual learning.
 \end{enumerate}
 
-\paragraph{Falsification targets.} Five results that would undermine the hypothesis:
+\paragraph{Falsification targets.} Results that would undermine the empirical claims of this paper:
 \begin{enumerate}
-    \item Synaptic intelligence benefit shows no $H_0$ correlation (finding is EWC-specific).
-    \item Adding 10+ architectures eliminates the CUB-200 topology signal ($p = 0.037$ was a small-sample artifact).
-    \item SAM changes $H_0$ without changing EWC benefit (fragmentation--mitigation link is spurious).
-    \item Cubical persistence disagrees with Ripser on the moderation result (method dependence).
-    \item A replay-based method shows equal $H_0$ correlation as EWC (no curvature specificity).
+    \item The pooled $H_0$--retention relationship fails to replicate on a comparable cross-dataset sweep using restricted-softmax retention with a different architecture set.
+    \item Adding 50--100+ architectures reveals a previously hidden interaction term that breaks the cross-dataset pooled $H_0$--retention effect.
+    \item Cubical persistence disagrees with Ripser on the pooled mixed-effects result, indicating method dependence rather than landscape signal.
+    \item The Phase~I-A $H_1$ dominance pattern at ImageNet-100 scale fails to replicate on a different production-scale dataset.
+    \item A replay-based mitigation method shows equal $H_0$--benefit correlation as EWC, indicating that any topology--mitigation relationship is not specific to curvature-based regularization (which would weaken the basin fragmentation account).
 \end{enumerate}
 
 % ════════════════════════════════════════
 \section{Conclusion}
 \label{sec:conclusion}
 
-Across 19 architectures and 3 datasets (57 configurations), we find that loss landscape topology is a conditional, not universal, predictor of continual learning dynamics. Topology rescues forgetting prediction on CUB-200 (permutation $p = 0.037$, suggestive) where baseline metrics alone are insufficient, but adds no predictive value on CIFAR-100 (where parameter count dominates) or RESISC-45. The WRN-28-$k$ width ladder validates $H_0$ as a structurally meaningful landscape summary: $H_0$ monotonically decreases with capacity ($\rho = -1.0$ on all 3 datasets), and Ripser--GUDHI agreement ($\rho = 1.0$) rules out software artifacts, though with only $n = 6$ widths, perfect monotonicity can occur by chance.
+We tested whether loss landscape topology contains predictive signal for catastrophic forgetting in cross-dataset continual learning across 19 image classification architectures spanning 0.3M--44.7M parameters and three datasets (CIFAR-100, CUB-200-2011, NWPU-RESISC45). A pooled mixed-effects analysis on 114 cross-dataset trajectories shows that the zeroth-order persistent homology feature count, $H_0$, carries a robust pooled predictive signal for Task A retention ($p < 0.001$), with the relationship surviving as a fixed effect after architecture and capacity are accounted for; per-pair correlations on the same data are heterogeneous, locating the signal at the pooled aggregation level rather than as a uniform per-pair claim. The same predictor does not remain significant for EWC mitigation benefit under cross-dataset pooling, despite within-dataset findings on individual datasets in earlier work; we report this as a boundary condition on the topology-mitigation relationship. At larger scale, eight ImageNet-100 configurations show an observational regime shift in which first-order ($H_1$) features dominate the topology signal (Spearman $\rho = 0.93$, $p = 0.0007$), reversing the $H_0$-dominance observed at smaller scales.
 
-In exploratory post-hoc analysis, we additionally observe that $H_0$ correlates with EWC mitigation benefit on CIFAR-100 ($\rho = 0.76$, 95\% CI $[0.46, 0.91]$) and RESISC-45 ($\rho = 0.86$, 95\% CI $[0.65, 0.94]$) but not CUB-200 ($\rho = 0.31$, 95\% CI $[-0.22, 0.78]$). Controlled regression establishes that $H_0$ is not merely a proxy for model size: on RESISC-45, topology explains more variance than parameter count ($R^2 = 0.645$ vs.\ $0.242$) and remains significant in the joint model ($p < 0.001$); pooled across datasets, $H_0$ retains significance after capacity controls ($p = 0.012$). A pooled interaction model provides suggestive evidence of dataset-dependent moderation (permutation $p = 0.046$), but this result was not pre-specified, does not survive conservative correction, and should be treated as hypothesis-generating rather than confirmatory. The basin fragmentation hypothesis offers a candidate mechanism linking $H_0$ to regularization sensitivity, but remains untested.
+The contribution of this paper is not a single predictive model, but an empirical map of when and how loss landscape topology provides predictive signal for continual learning. The map clarifies that the topology-retention relationship survives as a pooled effect across heterogeneous task pairs, that it does not extend to mitigation benefit at the scales tested here, that the dominant order of topology features depends on model scale, and that the choice of cross-dataset retention metric (full-softmax versus restricted-softmax) materially conditions interpretation. The utility of topology as a predictor of forgetting is conditional on dataset regime, scale, aggregation level, and evaluation metric.
 
-Critically, these results constitute a \emph{preliminary proof-of-concept} on small-to-medium models (0.3M--44.7M parameters) and small-image datasets. Whether the topological signal survives at production scale remains genuinely unknown and constitutes the primary open research question. Scaling persistent homology to models with hundreds of millions or billions of parameters introduces fundamental computational barriers: Ripser complexity is superpolynomial in the number of sampled points, and it is unclear whether the 2D subsampling strategy retains fidelity in high-dimensional parameter spaces.
-
-Systematic investigation requires HPC resources (e.g., NSF ACCESS supercomputer allocation) and should: (i) test whether the signal persists on production-scale models (100M--7B+ parameters), which may require novel distributed PH algorithms; (ii) extend to long task sequences (10--100+ sequential tasks) where topology evolution may become chaotic; and (iii) evaluate multiple continual learning methods (SI, PackNet, replay, adapter-based) to determine whether the finding generalizes beyond EWC. Additionally, scaling to 50--100+ architectures would provide statistical power sufficient to survive strict multiple-comparison correction, and pre-registering the moderation test would enable confirmatory replication.
+Open questions for future work include: (i) whether the cross-dataset $H_0$--retention pattern persists at production scale (100M--7B+ parameters); (ii) whether topology provides predictive signal for non-curvature-based mitigation methods (replay, parameter-isolation) where it appears not to for EWC at this scale; (iii) whether a causal intervention on landscape geometry, such as sharpness-aware minimization or controlled weight-decay sweeps, demonstrates that $H_0$ changes drive retention changes correspondingly; and (iv) whether long task sequences (10--100+ tasks) produce qualitatively different topology--forgetting dynamics than the two-task setting studied here.
 
 % ════════════════════════════════════════
 \bibliography{references}
