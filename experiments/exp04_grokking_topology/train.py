@@ -34,26 +34,47 @@ def evaluate(model, dataloader, criterion, device):
 
 
 def get_checkpoint_steps(cfg):
-    """Build sorted list of steps at which to save checkpoints."""
+    """Build sorted list of steps at which to save checkpoints.
+
+    Two schedule forms are supported:
+
+    1. Segmented (preferred, full study): ckpt_cfg["segments"] is a list of
+       {start, end, cadence}. Each segment adds steps start, start+cadence, ...
+       up to and including end. Segments should be contiguous (end of one =
+       start of next) and their boundaries divisible by the neighbouring
+       cadences so no gap opens at a seam. This is a FIXED schedule defined in
+       global step-space — it does NOT use onset information, so there is no
+       look-ahead leakage into the pre-onset window.
+
+    2. Two-phase (legacy, pilot): standard_cadence until fine_cadence_start,
+       then fine_cadence to total_steps.
+    """
     ckpt_cfg = cfg["checkpoints"]
     total_steps = cfg["training"]["total_steps"]
-    standard = ckpt_cfg["standard_cadence"]
-    fine = ckpt_cfg["fine_cadence"]
-    fine_start = ckpt_cfg["fine_cadence_start"]
 
     steps = set()
-    # Standard cadence up to fine_cadence_start
-    s = 0
-    while s <= min(fine_start, total_steps):
-        steps.add(s)
-        s += standard
+    if "segments" in ckpt_cfg:
+        for seg in ckpt_cfg["segments"]:
+            s = seg["start"]
+            end = min(seg["end"], total_steps)
+            cadence = seg["cadence"]
+            while s <= end:
+                steps.add(s)
+                s += cadence
+    else:
+        standard = ckpt_cfg["standard_cadence"]
+        fine = ckpt_cfg["fine_cadence"]
+        fine_start = ckpt_cfg["fine_cadence_start"]
+        s = 0
+        while s <= min(fine_start, total_steps):
+            steps.add(s)
+            s += standard
+        s = fine_start
+        while s <= total_steps:
+            steps.add(s)
+            s += fine
 
-    # Fine cadence from fine_cadence_start to total_steps
-    s = fine_start
-    while s <= total_steps:
-        steps.add(s)
-        s += fine
-
+    steps.add(0)
     steps.add(total_steps)
     return sorted(steps)
 
